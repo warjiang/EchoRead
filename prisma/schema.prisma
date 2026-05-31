@@ -1,0 +1,57 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Article {
+  id          String   @id @default(cuid())
+  title       String
+  url         String   @unique
+  content     String
+  summary     String?
+  category    String?
+  difficulty  String?
+  publishedAt DateTime
+  createdAt   DateTime @default(now())
+  sentences   Sentence[]
+  readings    ReadingHistory[]
+}
+
+model Sentence {
+  id        String  @id @default(cuid())
+  articleId String
+  index     Int
+  text      String
+  audioUrl  String?
+  article   Article @relation(fields: [articleId], references: [id], onDelete: Cascade)
+
+  @@index([articleId])
+}
+
+model Vocabulary {
+  id         String   @id @default(cuid())
+  word       String
+  definition String?
+  context    String?
+  articleId  String?
+  mastered   Boolean  @default(false)
+  createdAt  DateTime @default(now())
+
+  @@unique([word])
+}
+
+model ReadingHistory {
+  id          String   @id @default(cuid())
+  articleId   String
+  progress    Float    @default(0)
+  shadowDone  Boolean  @default(false)
+  duration    Int      @default(0)
+  createdAt   DateTime @default(now())
+  article     Article  @relation(fields: [articleId], references: [id], onDelete: Cascade)
+
+  @@index([articleId])
+}
