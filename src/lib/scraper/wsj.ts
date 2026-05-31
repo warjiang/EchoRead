@@ -2,9 +2,21 @@ import { chromium, type Browser, type BrowserContext } from "playwright";
 import * as fs from "fs";
 import * as path from "path";
 
-const STORAGE_PATH = path.join(process.cwd(), ".wsj-auth.json");
+const STORAGE_PATH =
+  process.env.WSJ_STORAGE_PATH ||
+  path.join(/*turbopackIgnore: true*/ process.cwd(), "data", ".wsj-auth.json");
+
+async function createBrowser(): Promise<Browser> {
+  const remoteEndpoint = process.env.PLAYWRIGHT_WS_ENDPOINT;
+  if (remoteEndpoint) {
+    return chromium.connect(remoteEndpoint);
+  }
+  return chromium.launch({ headless: true });
+}
 
 async function getAuthenticatedContext(browser: Browser): Promise<BrowserContext> {
+  fs.mkdirSync(path.dirname(STORAGE_PATH), { recursive: true });
+
   if (fs.existsSync(STORAGE_PATH)) {
     const context = await browser.newContext({
       storageState: STORAGE_PATH,
@@ -41,7 +53,7 @@ export interface ScrapedArticle {
 }
 
 export async function scrapeWSJArticles(maxArticles = 5): Promise<ScrapedArticle[]> {
-  const browser = await chromium.launch({ headless: true });
+  const browser = await createBrowser();
 
   try {
     const context = await getAuthenticatedContext(browser);
