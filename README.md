@@ -1,8 +1,59 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# 📖 Shadow Reading
 
-## Getting Started
+English learning website powered by WSJ news articles with shadow reading practice.
 
-First, run the development server:
+## Features
+
+- 📰 **Daily WSJ Articles** - Auto-scrape latest articles with Playwright
+- 🎧 **Shadow Reading** - TTS sentence playback with speed control
+- 🎤 **Recording & Comparison** - Record yourself and compare with original
+- 📖 **Vocabulary Book** - Click words to look up and save
+- 📊 **Progress Tracking** - Learning history and statistics
+
+## Quick Start
+
+```bash
+# 1. Install dependencies
+npm install
+
+# 2. Set up environment variables
+cp .env.example .env
+# Edit .env with your WSJ credentials
+
+# 3. Initialize database
+npx prisma migrate dev
+
+# 4. Install edge-tts CLI (for TTS)
+pip install edge-tts
+
+# 5. Run development server
+npm run dev
+```
+
+Open [http://localhost:3000](http://localhost:3000)
+
+## Usage
+
+1. Click "Fetch New Articles" to scrape WSJ articles
+2. Click an article to read it
+3. Click "Start Shadow Reading" for TTS playback practice
+4. Record yourself reading along and compare
+
+## Docker Deployment
+
+```bash
+# Build and run with Docker Compose
+docker compose up -d
+```
+
+## Tech Stack
+
+- **Frontend**: Next.js 14, React, Tailwind CSS
+- **Backend**: Next.js API Routes
+- **Database**: SQLite + Prisma
+- **Scraper**: Playwright
+- **TTS**: Edge TTS (Microsoft)
+- **Audio**: Web Audio API + MediaRecorder
 
 ```bash
 npm run dev

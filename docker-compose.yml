@@ -1,0 +1,16 @@
+services:
+  app:
+    build: .
+    ports:
+      - "3000:3000"
+    environment:
+      - DATABASE_URL=file:/app/data/shadow-reading.db
+      - WSJ_EMAIL=${WSJ_EMAIL}
+      - WSJ_PASSWORD=${WSJ_PASSWORD}
+      - TTS_PROVIDER=${TTS_PROVIDER:-edge}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - NEXT_PUBLIC_APP_URL=http://localhost:3000
+    volumes:
+      - ./data:/app/data
+      - ./public/audio:/app/public/audio
+    restart: unless-stopped
