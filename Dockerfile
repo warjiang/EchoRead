@@ -1,43 +1,34 @@
-FROM node:20-slim
+FROM node:20-bookworm-slim AS base
 
-# Install Playwright dependencies
-RUN apt-get update && apt-get install -y \
-    wget \
-    ca-certificates \
-    fonts-liberation \
-    libasound2 \
-    libatk-bridge2.0-0 \
-    libatk1.0-0 \
-    libcups2 \
-    libdbus-1-3 \
-    libdrm2 \
-    libgbm1 \
-    libgtk-3-0 \
-    libnspr4 \
-    libnss3 \
-    libxcomposite1 \
-    libxdamage1 \
-    libxrandr2 \
-    xdg-utils \
-    cron \
-    && rm -rf /var/lib/apt/lists/*
-
+ENV NEXT_TELEMETRY_DISABLED=1
 WORKDIR /app
 
-COPY package*.json ./
-RUN npm ci --only=production
+FROM base AS deps
+COPY package.json package-lock.json ./
+RUN npm ci
 
+FROM deps AS builder
 COPY . .
 RUN npx prisma generate
 RUN npm run build
 
-# Install Playwright browsers
-RUN npx playwright install chromium
+FROM mcr.microsoft.com/playwright:v1.60.0-jammy AS runner
 
-# Set up cron job for daily scraping (8 AM)
-RUN echo "0 8 * * * cd /app && npx tsx scripts/cron-scrape.ts >> /var/log/scraper.log 2>&1" > /etc/cron.d/scraper
-RUN chmod 0644 /etc/cron.d/scraper && crontab /etc/cron.d/scraper
+ENV NODE_ENV=production \
+    NEXT_TELEMETRY_DISABLED=1 \
+    PORT=3000 \
+    HOSTNAME=0.0.0.0
+
+WORKDIR /app
+
+RUN mkdir -p /app/data /app/public/audio
+
+COPY --from=builder /app/public ./public
+COPY --from=builder /app/.next/standalone ./
+COPY --from=builder /app/.next/static ./.next/static
+COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
+COPY --from=builder /app/prisma ./prisma
 
 EXPOSE 3000
 
-CMD ["sh", "-c", "cron && npm start"]
+CMD ["node", "server.js"]
