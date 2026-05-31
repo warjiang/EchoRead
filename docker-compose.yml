@@ -21,7 +21,7 @@ services:
       - WSJ_EMAIL=${WSJ_EMAIL}
       - WSJ_PASSWORD=${WSJ_PASSWORD}
       - WSJ_STORAGE_PATH=/app/data/.wsj-auth.json
-      - PLAYWRIGHT_WS_ENDPOINT=${PLAYWRIGHT_WS_ENDPOINT:-ws://browser:3000/}
+      - PLAYWRIGHT_WS_ENDPOINT=${PLAYWRIGHT_WS_ENDPOINT}
       - TTS_PROVIDER=${TTS_PROVIDER:-edge}
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
       - NEXT_PUBLIC_APP_URL=http://localhost:3000
