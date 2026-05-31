@@ -14,11 +14,10 @@ interface Sentence {
 
 interface SentencePlayerProps {
   sentences: Sentence[];
-  articleId: string;
   onSentenceChange?: (index: number) => void;
 }
 
-export function SentencePlayer({ sentences, articleId, onSentenceChange }: SentencePlayerProps) {
+export function SentencePlayer({ sentences, onSentenceChange }: SentencePlayerProps) {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [isAutoPlay, setIsAutoPlay] = useState(false);
   const { isPlaying, playbackRate, play, pause, stop, setRate } = useAudioPlayer();

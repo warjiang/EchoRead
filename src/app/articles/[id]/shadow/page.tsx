@@ -101,7 +101,6 @@ export default function ShadowReadingPage() {
       <div className="mb-6">
         <SentencePlayer
           sentences={article.sentences}
-          articleId={articleId}
           onSentenceChange={setCurrentSentenceIndex}
         />
       </div>

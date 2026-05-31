@@ -42,9 +42,21 @@ Open [http://localhost:3000](http://localhost:3000)
 ## Docker Deployment
 
 ```bash
-# Build and run with Docker Compose
-docker compose up -d
+# 1) Configure credentials
+cp .env.example .env
+# Edit .env and set WSJ_EMAIL / WSJ_PASSWORD
+
+# 2) One-command startup (app + browser + initial scrape)
+docker compose up --build -d
+
+# 3) Check initial scrape logs
+docker compose logs -f bootstrap-scrape
 ```
+
+Compose now starts:
+- `app`: Next.js service (runs `prisma migrate deploy` on startup)
+- `browser`: dedicated Playwright browser container
+- `bootstrap-scrape`: one-shot job that calls `/api/scraper` after app is healthy
 
 ## Tech Stack
 
