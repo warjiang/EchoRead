@@ -1,7 +1,6 @@
 import { prisma } from "@/lib/db";
 import { ArticleCard } from "@/components/ArticleCard";
 import { Newspaper, RefreshCw } from "lucide-react";
-import Link from "next/link";
 
 export default async function HomePage() {
   const articles = await prisma.article.findMany({
@@ -21,13 +20,15 @@ export default async function HomePage() {
             Read WSJ articles and practice shadow reading
           </p>
         </div>
-        <Link
-          href="/api/scraper"
-          className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm"
-        >
-          <RefreshCw className="w-4 h-4" />
-          Fetch New Articles
-        </Link>
+        <form action="/api/scraper" method="post">
+          <button
+            type="submit"
+            className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm"
+          >
+            <RefreshCw className="w-4 h-4" />
+            Fetch New Articles
+          </button>
+        </form>
       </div>
 
       {articles.length === 0 ? (

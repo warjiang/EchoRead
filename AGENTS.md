@@ -34,17 +34,17 @@ This repository is a Next.js + Prisma + Playwright application for WSJ-based sha
 
 ## Local development workflow
 
-1. Install dependencies: `npm ci`
+1. Install dependencies: `pnpm install`
 2. Prepare env: `cp .env.example .env`
-3. Initialize DB for local dev: `npx prisma migrate dev`
-4. Start app: `npm run dev`
+3. Initialize DB for local dev: `pnpm exec prisma migrate dev`
+4. Start app: `pnpm dev`
 
 ## Build and CI workflow
 
-- Lint command: `npm run lint`
-- Build command: `npm run build`
+- Lint command: `pnpm lint`
+- Build command: `pnpm build`
 - CI-equivalent app build sequence:
-  `DATABASE_URL=file:./prisma/ci.db npx prisma migrate deploy && npm run build`
+  `DATABASE_URL=file:./prisma/ci.db pnpm exec prisma migrate deploy && pnpm build`
 - Reason: some pages query Prisma during build; migrations must be applied first.
 
 ## Docker and deployment conventions
@@ -52,7 +52,7 @@ This repository is a Next.js + Prisma + Playwright application for WSJ-based sha
 - Build stage must include OpenSSL (required by Prisma runtime/binaries).
 - Docker build runs `prisma generate` and `prisma migrate deploy` before `next build`.
 - Runtime command runs migrations before boot:
-  `npx prisma migrate deploy && node server.js`
+  `pnpm exec prisma migrate deploy && node server.js`
 - Compose uses:
   - `browser`: Playwright run-server service
   - `app`: Next.js container, can use `PLAYWRIGHT_WS_ENDPOINT`

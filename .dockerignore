@@ -12,6 +12,7 @@ prisma/dev.db-journal
 .env.*.local
 .wsj-auth.json
 npm-debug.log*
+pnpm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 .DS_Store

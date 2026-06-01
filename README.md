@@ -14,20 +14,20 @@ English learning website powered by WSJ news articles with shadow reading practi
 
 ```bash
 # 1. Install dependencies
-npm install
+pnpm install
 
 # 2. Set up environment variables
 cp .env.example .env
 # Edit .env with your WSJ credentials
 
 # 3. Initialize database
-npx prisma migrate dev
+pnpm exec prisma migrate dev
 
 # 4. Install edge-tts CLI (for TTS)
 pip install edge-tts
 
 # 5. Run development server
-npm run dev
+pnpm dev
 ```
 
 Open [http://localhost:3000](http://localhost:3000)
@@ -46,7 +46,7 @@ Open [http://localhost:3000](http://localhost:3000)
 cp .env.example .env
 # Edit .env and set WSJ_EMAIL / WSJ_PASSWORD
 
-# 2) One-command startup (app + browser + initial scrape)
+# 2) Local image build + startup (app + browser + initial scrape)
 docker compose up --build -d
 
 # 3) Check initial scrape logs
@@ -58,6 +58,22 @@ Compose now starts:
 - `browser`: dedicated Playwright browser container
 - `bootstrap-scrape`: one-shot job that calls `/api/scraper` after app is healthy
 
+## One-Click Deploy (Prebuilt Image)
+
+```bash
+# 1) Configure credentials
+cp .env.example .env
+# Edit .env and set WSJ_EMAIL / WSJ_PASSWORD
+
+# 2) One-command deploy (pull latest image + start)
+docker compose -f docker-compose.deploy.yml up -d
+
+# 3) Check initialization logs
+docker compose -f docker-compose.deploy.yml logs -f bootstrap-scrape
+```
+
+`docker-compose.deploy.yml` pulls image from `ECHOREAD_IMAGE` (default: `ghcr.io/warjiang/echoread:latest`) and starts all required services.
+
 ## Tech Stack
 
 - **Frontend**: Next.js 14, React, Tailwind CSS
@@ -68,13 +84,7 @@ Compose now starts:
 - **Audio**: Web Audio API + MediaRecorder
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
 pnpm dev
-# or
-bun dev
 ```
 
 Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.

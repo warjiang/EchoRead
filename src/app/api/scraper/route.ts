@@ -3,7 +3,7 @@ import { prisma } from "@/lib/db";
 import { scrapeWSJArticles } from "@/lib/scraper/wsj";
 import { splitIntoSentences } from "@/lib/nlp/sentence-split";
 
-export async function POST() {
+async function runScrape() {
   try {
     const articles = await scrapeWSJArticles(5);
     const created = [];
@@ -45,4 +45,12 @@ export async function POST() {
       { status: 500 }
     );
   }
+}
+
+export async function POST() {
+  return runScrape();
+}
+
+export async function GET() {
+  return runScrape();
 }
