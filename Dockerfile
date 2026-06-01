@@ -3,17 +3,18 @@ FROM node:20-bookworm-slim AS base
 ENV NEXT_TELEMETRY_DISABLED=1
 WORKDIR /app
 RUN apt-get update -y && apt-get install -y --no-install-recommends openssl && rm -rf /var/lib/apt/lists/*
+RUN corepack enable && corepack prepare pnpm@9.15.9 --activate
 
 FROM base AS deps
-COPY package.json package-lock.json ./
-RUN npm ci
+COPY package.json pnpm-lock.yaml ./
+RUN pnpm install --frozen-lockfile
 
 FROM deps AS builder
 ENV DATABASE_URL=file:./prisma/build.db
 COPY . .
-RUN npx prisma generate
-RUN npx prisma migrate deploy
-RUN npm run build
+RUN pnpm prisma generate
+RUN pnpm prisma migrate deploy
+RUN pnpm build
 
 FROM mcr.microsoft.com/playwright:v1.60.0-jammy AS runner
 
@@ -24,6 +25,7 @@ ENV NODE_ENV=production \
 
 WORKDIR /app
 
+RUN corepack enable && corepack prepare pnpm@9.15.9 --activate
 RUN mkdir -p /app/data /app/public/audio
 
 COPY --from=deps /app/node_modules ./node_modules
@@ -36,4 +38,4 @@ COPY --from=builder /app/package.json ./package.json
 
 EXPOSE 3000
 
-CMD ["sh", "-c", "npx prisma migrate deploy && node server.js"]
+CMD ["sh", "-c", "pnpm prisma migrate deploy && node server.js"]
