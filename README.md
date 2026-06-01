@@ -21,7 +21,7 @@ cp .env.example .env
 # Edit .env with your WSJ credentials
 
 # 3. Initialize database
-pnpm prisma migrate dev
+pnpm exec prisma migrate dev
 
 # 4. Install edge-tts CLI (for TTS)
 pip install edge-tts

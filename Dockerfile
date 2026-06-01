@@ -12,8 +12,8 @@ RUN pnpm install --frozen-lockfile
 FROM deps AS builder
 ENV DATABASE_URL=file:./prisma/build.db
 COPY . .
-RUN pnpm prisma generate
-RUN pnpm prisma migrate deploy
+RUN pnpm exec prisma generate
+RUN pnpm exec prisma migrate deploy
 RUN pnpm build
 
 FROM mcr.microsoft.com/playwright:v1.60.0-jammy AS runner
@@ -37,4 +37,4 @@ COPY --from=builder /app/package.json ./package.json
 
 EXPOSE 3000
 
-CMD ["sh", "-c", "pnpm prisma migrate deploy && node server.js"]
+CMD ["sh", "-c", "pnpm exec prisma migrate deploy && node server.js"]
