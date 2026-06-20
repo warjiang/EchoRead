@@ -6,27 +6,69 @@ const STORAGE_PATH =
   process.env.WSJ_STORAGE_PATH ||
   path.join(/*turbopackIgnore: true*/ process.cwd(), "data", ".wsj-auth.json");
 
-async function createBrowser(): Promise<Browser> {
+type BrowserMode = "cdp" | "ws" | "local";
+
+interface BrowserSession {
+  browser: Browser;
+  mode: BrowserMode;
+}
+
+let sharedRemoteBrowserPromise: Promise<Browser> | null = null;
+let sharedRemoteMode: Exclude<BrowserMode, "local"> | null = null;
+
+async function createBrowserSession(): Promise<BrowserSession> {
   const cdpEndpoint = process.env.PLAYWRIGHT_CDP_URL;
   if (cdpEndpoint) {
-    return chromium.connectOverCDP(cdpEndpoint);
+    if (!sharedRemoteBrowserPromise || sharedRemoteMode !== "cdp") {
+      sharedRemoteBrowserPromise = chromium.connectOverCDP(cdpEndpoint);
+      sharedRemoteMode = "cdp";
+    }
+
+    return {
+      browser: await sharedRemoteBrowserPromise,
+      mode: "cdp",
+    };
   }
 
   const remoteEndpoint = process.env.PLAYWRIGHT_WS_ENDPOINT;
   if (remoteEndpoint) {
-    return chromium.connect(remoteEndpoint);
+    if (!sharedRemoteBrowserPromise || sharedRemoteMode !== "ws") {
+      sharedRemoteBrowserPromise = chromium.connect(remoteEndpoint);
+      sharedRemoteMode = "ws";
+    }
+
+    return {
+      browser: await sharedRemoteBrowserPromise,
+      mode: "ws",
+    };
   }
-  return chromium.launch({ headless: true });
+
+  return {
+    browser: await chromium.launch({ headless: true }),
+    mode: "local",
+  };
 }
 
-async function getAuthenticatedContext(browser: Browser): Promise<BrowserContext> {
+interface ContextSession {
+  context: BrowserContext;
+  isOwned: boolean;
+}
+
+async function getAuthenticatedContext(browser: Browser, allowReuse = true): Promise<ContextSession> {
   fs.mkdirSync(path.dirname(STORAGE_PATH), { recursive: true });
+
+  if (allowReuse) {
+    const existingContext = browser.contexts()[0];
+    if (existingContext) {
+      return { context: existingContext, isOwned: false };
+    }
+  }
 
   if (fs.existsSync(STORAGE_PATH)) {
     const context = await browser.newContext({
       storageState: STORAGE_PATH,
     });
-    return context;
+    return { context, isOwned: true };
   }
 
   const context = await browser.newContext();
@@ -46,7 +88,7 @@ async function getAuthenticatedContext(browser: Browser): Promise<BrowserContext
   await context.storageState({ path: STORAGE_PATH });
   await page.close();
 
-  return context;
+  return { context, isOwned: true };
 }
 
 export interface ScrapedArticle {
@@ -58,10 +100,11 @@ export interface ScrapedArticle {
 }
 
 export async function scrapeWSJArticles(maxArticles = 5): Promise<ScrapedArticle[]> {
-  const browser = await createBrowser();
+  const { browser, mode } = await createBrowserSession();
+  const allowReuse = mode !== "local";
 
   try {
-    const context = await getAuthenticatedContext(browser);
+    const { context, isOwned } = await getAuthenticatedContext(browser, allowReuse);
     const page = await context.newPage();
 
     await page.goto("https://www.wsj.com/", { waitUntil: "domcontentloaded" });
@@ -115,9 +158,14 @@ export async function scrapeWSJArticles(maxArticles = 5): Promise<ScrapedArticle
       }
     }
 
-    await context.close();
+    await page.close();
+    if (isOwned) {
+      await context.close();
+    }
     return articles;
   } finally {
-    await browser.close();
+    if (mode === "local") {
+      await browser.close();
+    }
   }
 }

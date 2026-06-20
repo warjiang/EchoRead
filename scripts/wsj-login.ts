@@ -11,29 +11,55 @@ const STORAGE_PATH =
   process.env.WSJ_STORAGE_PATH ||
   path.join(process.cwd(), "data", ".wsj-auth.json");
 
-async function createBrowser(): Promise<Browser> {
+type BrowserMode = "cdp" | "ws" | "local";
+
+interface BrowserSession {
+  browser: Browser;
+  mode: BrowserMode;
+}
+
+async function createBrowserSession(): Promise<BrowserSession> {
   const cdpEndpoint = process.env.PLAYWRIGHT_CDP_URL;
   if (cdpEndpoint) {
     console.log(`Connecting over CDP: ${cdpEndpoint}`);
-    return chromium.connectOverCDP(cdpEndpoint);
+    return {
+      browser: await chromium.connectOverCDP(cdpEndpoint),
+      mode: "cdp",
+    };
   }
 
   const wsEndpoint = process.env.PLAYWRIGHT_WS_ENDPOINT;
   if (wsEndpoint) {
     console.log(`Connecting over Playwright WS: ${wsEndpoint}`);
-    return chromium.connect(wsEndpoint);
+    return {
+      browser: await chromium.connect(wsEndpoint),
+      mode: "ws",
+    };
   }
 
   console.log("No remote endpoint configured, launching local Chromium.");
-  return chromium.launch({ headless: false });
+  return {
+    browser: await chromium.launch({ headless: false }),
+    mode: "local",
+  };
 }
 
 async function main() {
   fs.mkdirSync(path.dirname(STORAGE_PATH), { recursive: true });
 
-  const browser = await createBrowser();
-  const context = await browser.newContext();
-  const page = await context.newPage();
+  const { browser, mode } = await createBrowserSession();
+  let context = browser.contexts()[0];
+  let createdContext = false;
+
+  if (!context) {
+    context = await browser.newContext();
+    createdContext = true;
+  }
+
+  let page = context.pages()[0];
+  if (!page) {
+    page = await context.newPage();
+  }
 
   await page.goto("https://sso.accounts.dowjones.com/login", {
     waitUntil: "domcontentloaded",
@@ -49,8 +75,16 @@ async function main() {
   rl.close();
 
   await context.storageState({ path: STORAGE_PATH });
-  await context.close();
-  await browser.close();
+
+  if (createdContext) {
+    await context.close();
+  }
+
+  if (mode === "local") {
+    await browser.close();
+  } else {
+    console.log("Remote browser kept alive for reuse.");
+  }
 
   console.log("WSJ login state saved.");
 }
