@@ -1,0 +1,43 @@
+
+services:
+  sandbox:
+    container_name: aio-sandbox
+    image: ${SANDBOX_IMAGE:-ghcr.io/agent-infra/sandbox:latest}
+    security_opt:
+      - seccomp:unconfined
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: "unless-stopped"
+    shm_size: "2gb"
+    mem_limit: "8g"
+    cpus: "4"
+    ports:
+      - "${HOST_PORT:-8080}:8080"
+    networks:
+      - echoread
+    environment:
+      PROXY_SERVER: ${PROXY_SERVER:-}
+      TZ: ${TZ:-Asia/Singapore}
+      JWT_PUBLIC_KEY: ${JWT_PUBLIC_KEY:-}
+      DNS_OVER_HTTPS_TEMPLATES: ${DNS_OVER_HTTPS_TEMPLATES:-}
+      WORKSPACE: ${WORKSPACE:-/home/gem}
+      HOMEPAGE: ${HOMEPAGE:-}
+      PROXY_EXCLUDE: ${PROXY_EXCLUDE:-localhost,127.0.0.1}
+      BROWSER_EXTRA_ARGS: ${BROWSER_EXTRA_ARGS:-}
+    
+
+  clash:
+    container_name: clash
+    image: ${CLASH_IMAGE:-docker.io/dreamacro/clash:latest}
+    ports:
+      - "7890:7890"
+      - "9090:9090"
+    volumes:
+      - ./clash-config:/root/.config/clash:rw
+      - ./clash-ui:/ui
+    networks:
+      - echoread
+    restart: unless-stopped
+
+networks:
+  echoread:

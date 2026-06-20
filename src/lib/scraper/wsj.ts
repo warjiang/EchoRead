@@ -7,6 +7,11 @@ const STORAGE_PATH =
   path.join(/*turbopackIgnore: true*/ process.cwd(), "data", ".wsj-auth.json");
 
 async function createBrowser(): Promise<Browser> {
+  const cdpEndpoint = process.env.PLAYWRIGHT_CDP_URL;
+  if (cdpEndpoint) {
+    return chromium.connectOverCDP(cdpEndpoint);
+  }
+
   const remoteEndpoint = process.env.PLAYWRIGHT_WS_ENDPOINT;
   if (remoteEndpoint) {
     return chromium.connect(remoteEndpoint);

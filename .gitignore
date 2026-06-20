@@ -54,3 +54,4 @@ public/audio/*.mp3
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+deploy/clash-config/config.yaml
