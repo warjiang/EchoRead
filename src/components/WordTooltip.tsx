@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { lookupWord, type WordDefinition } from "@/lib/dictionary";
 import { X, Plus } from "lucide-react";
 
@@ -12,16 +12,25 @@ interface WordTooltipProps {
 }
 
 export function WordTooltip({ word, context, articleId, onClose }: WordTooltipProps) {
-  const [definition, setDefinition] = useState<WordDefinition | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [saved, setSaved] = useState(false);
+  const [lookup, setLookup] = useState<{
+    word: string;
+    definition: WordDefinition | null;
+    loading: boolean;
+  }>({ word, definition: null, loading: true });
+  const [savedState, setSavedState] = useState({ word, saved: false });
 
-  useState(() => {
+  useEffect(() => {
+    let cancelled = false;
+
     lookupWord(word).then((def) => {
-      setDefinition(def);
-      setLoading(false);
+      if (cancelled) return;
+      setLookup({ word, definition: def, loading: false });
     });
-  });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [word]);
 
   const saveToVocabulary = async () => {
     await fetch("/api/vocabulary", {
@@ -29,8 +38,12 @@ export function WordTooltip({ word, context, articleId, onClose }: WordTooltipPr
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ word, context, articleId }),
     });
-    setSaved(true);
+    setSavedState({ word, saved: true });
   };
+
+  const loading = lookup.word !== word || lookup.loading;
+  const definition = lookup.word === word ? lookup.definition : null;
+  const saved = savedState.word === word && savedState.saved;
 
   return (
     <div className="absolute z-50 bg-white border shadow-lg rounded-lg p-4 max-w-sm w-72">

@@ -12,6 +12,12 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    "deploy/clash-config/**",
+    "deploy/clash-ui/**",
+    "public/audio/**",
+    "prisma/prisma/**",
+    "prisma/*.db",
+    "prisma/*.db-journal",
   ]),
 ]);
 

@@ -5,7 +5,8 @@
  */
 
 import { PrismaClient } from "@prisma/client";
-import { scrapeWSJArticles } from "../src/lib/scraper/wsj";
+import { enqueueMaterialJob } from "../src/lib/materials/queue";
+import { scrapeWSJArticlesWithWorker } from "../src/lib/scraper/worker";
 import { splitIntoSentences } from "../src/lib/nlp/sentence-split";
 
 const prisma = new PrismaClient();
@@ -14,7 +15,7 @@ async function main() {
   console.log(`[${new Date().toISOString()}] Starting WSJ article scrape...`);
 
   try {
-    const articles = await scrapeWSJArticles(5);
+    const articles = await scrapeWSJArticlesWithWorker(5);
     console.log(`Found ${articles.length} articles`);
 
     let created = 0;
@@ -29,7 +30,7 @@ async function main() {
 
       const sentences = splitIntoSentences(article.content);
 
-      await prisma.article.create({
+      const dbArticle = await prisma.article.create({
         data: {
           title: article.title,
           url: article.url,
@@ -44,6 +45,7 @@ async function main() {
           },
         },
       });
+      await enqueueMaterialJob(dbArticle.id);
       created++;
       console.log(`  Created: ${article.title.slice(0, 50)}... (${sentences.length} sentences)`);
     }

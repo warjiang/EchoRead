@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/db";
 import { ArticleCard } from "@/components/ArticleCard";
+import { triggerScrape } from "@/app/actions";
 import { Newspaper, RefreshCw } from "lucide-react";
 
 export default async function HomePage() {
@@ -20,7 +21,7 @@ export default async function HomePage() {
             Read WSJ articles and practice shadow reading
           </p>
         </div>
-        <form action="/api/scraper" method="post">
+        <form action={triggerScrape}>
           <button
             type="submit"
             className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm"

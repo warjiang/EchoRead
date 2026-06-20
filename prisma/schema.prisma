@@ -19,6 +19,8 @@ model Article {
   createdAt   DateTime @default(now())
   sentences   Sentence[]
   readings    ReadingHistory[]
+  trainingPackage TrainingPackage?
+  materialJobs MaterialJob[]
 }
 
 model Sentence {
@@ -54,4 +56,36 @@ model ReadingHistory {
   article     Article  @relation(fields: [articleId], references: [id], onDelete: Cascade)
 
   @@index([articleId])
+}
+
+model TrainingPackage {
+  id            String   @id @default(cuid())
+  articleId     String   @unique
+  version       Int      @default(1)
+  status        String   @default("pending")
+  model         String?
+  promptVersion String   @default("v1")
+  payloadJson   String?
+  errorMessage  String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  article       Article  @relation(fields: [articleId], references: [id], onDelete: Cascade)
+}
+
+model MaterialJob {
+  id         String   @id @default(cuid())
+  articleId  String
+  jobType    String   @default("full_training_pack")
+  status     String   @default("pending")
+  attempts   Int      @default(0)
+  maxAttempts Int     @default(3)
+  runAfter   DateTime @default(now())
+  lockedAt   DateTime?
+  lastError  String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  article    Article  @relation(fields: [articleId], references: [id], onDelete: Cascade)
+
+  @@index([status, runAfter])
+  @@unique([articleId, jobType])
 }

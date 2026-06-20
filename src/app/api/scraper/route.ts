@@ -1,11 +1,17 @@
-import { NextResponse } from "next/server";
+import { after, NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
-import { scrapeWSJArticles } from "@/lib/scraper/wsj";
+import { isAuthorizedByBearer } from "@/lib/api-auth";
+import { scrapeWSJArticlesWithWorker } from "@/lib/scraper/worker";
 import { splitIntoSentences } from "@/lib/nlp/sentence-split";
+import { enqueueMaterialJob, processMaterialJobs } from "@/lib/materials/queue";
 
-async function runScrape() {
+async function runScrape(request: NextRequest) {
+  if (!isAuthorizedByBearer(request, "SCRAPER_WORKER_SECRET")) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
   try {
-    const articles = await scrapeWSJArticles(5);
+    const articles = await scrapeWSJArticlesWithWorker(5);
     const created = [];
 
     for (const article of articles) {
@@ -32,6 +38,17 @@ async function runScrape() {
         },
       });
       created.push(dbArticle);
+      await enqueueMaterialJob(dbArticle.id);
+    }
+
+    if (created.length > 0) {
+      after(async () => {
+        try {
+          await processMaterialJobs(Math.min(created.length, 3));
+        } catch (error) {
+          console.error("Background material worker failed:", error);
+        }
+      });
     }
 
     return NextResponse.json({
@@ -47,10 +64,6 @@ async function runScrape() {
   }
 }
 
-export async function POST() {
-  return runScrape();
-}
-
-export async function GET() {
-  return runScrape();
+export async function POST(request: NextRequest) {
+  return runScrape(request);
 }

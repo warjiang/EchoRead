@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/db";
-import { BookOpen, Check, X } from "lucide-react";
+import { VocabularyMasteryButton } from "@/components/VocabularyActions";
+import { BookOpen, X } from "lucide-react";
 
 export default async function VocabularyPage() {
   const words = await prisma.vocabulary.findMany({
@@ -42,13 +43,7 @@ export default async function VocabularyPage() {
                       )}
                     </div>
                     <div className="flex gap-1">
-                      <form action={`/api/vocabulary`} method="POST">
-                        <input type="hidden" name="id" value={word.id} />
-                        <input type="hidden" name="mastered" value="true" />
-                        <button className="p-1.5 text-green-500 hover:bg-green-50 rounded" title="Mark as mastered">
-                          <Check className="w-4 h-4" />
-                        </button>
-                      </form>
+                      <VocabularyMasteryButton id={word.id} mastered={true} />
                     </div>
                   </div>
                 ))}

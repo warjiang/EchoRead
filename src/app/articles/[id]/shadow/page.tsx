@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
+import { generateArticleAudio } from "@/app/actions";
 import { SentencePlayer } from "@/components/SentencePlayer";
 import { AudioRecorder } from "@/components/AudioRecorder";
 
@@ -43,17 +44,11 @@ export default function ShadowReadingPage() {
   const generateAllAudio = async () => {
     setGeneratingAudio(true);
     try {
-      const res = await fetch("/api/tts", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ articleId }),
-      });
-      if (res.ok) {
-        // Refresh article data
-        const articleRes = await fetch(`/api/articles/${articleId}`);
-        if (articleRes.ok) {
-          setArticle(await articleRes.json());
-        }
+      await generateArticleAudio(articleId);
+      // Refresh article data
+      const articleRes = await fetch(`/api/articles/${articleId}`);
+      if (articleRes.ok) {
+        setArticle(await articleRes.json());
       }
     } finally {
       setGeneratingAudio(false);

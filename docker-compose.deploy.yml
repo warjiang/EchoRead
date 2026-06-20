@@ -1,9 +1,36 @@
 services:
-  browser:
-    image: mcr.microsoft.com/playwright:v1.60.0-jammy
-    command: ["npx", "-y", "playwright@1.60.0", "run-server", "--port=3000", "--host=0.0.0.0"]
+  chrome:
+    build:
+      context: ./docker/chrome
+    expose:
+      - "9222"
+    volumes:
+      - ./data/chrome-profile:/data/chrome-profile
     healthcheck:
-      test: ["CMD-SHELL", "node -e \"fetch('http://localhost:3000').then(()=>process.exit(0)).catch(()=>process.exit(1))\""]
+      test: ["CMD-SHELL", "curl -fsS http://localhost:9222/json/version >/dev/null"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    restart: unless-stopped
+
+  wsj-worker:
+    build:
+      context: ./worker/wsj-worker
+    depends_on:
+      chrome:
+        condition: service_healthy
+    environment:
+      - BROWSER_CDP_URL=${BROWSER_CDP_URL:-http://chrome:9222}
+      - BROWSER_AGENT_MODEL=${BROWSER_AGENT_MODEL:-gpt-4.1-mini}
+      - BROWSER_AGENT_BASE_URL=${BROWSER_AGENT_BASE_URL:-${OPENAI_BASE_URL:-}}
+      - BROWSER_AGENT_API_KEY=${BROWSER_AGENT_API_KEY:-${OPENAI_API_KEY:-}}
+      - BROWSER_AGENT_MAX_STEPS=${BROWSER_AGENT_MAX_STEPS:-80}
+      - BROWSER_AGENT_RESPONSE_FORMAT=${BROWSER_AGENT_RESPONSE_FORMAT:-prompt_json}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - OPENAI_BASE_URL=${OPENAI_BASE_URL:-}
+      - SCRAPER_WORKER_SECRET=${SCRAPER_WORKER_SECRET:-}
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8000/health >/dev/null"]
       interval: 10s
       timeout: 5s
       retries: 12
@@ -13,7 +40,7 @@ services:
     image: ${ECHOREAD_IMAGE:-ghcr.io/warjiang/echoread:latest}
     pull_policy: always
     depends_on:
-      browser:
+      wsj-worker:
         condition: service_healthy
     ports:
       - "${APP_PORT:-3000}:3000"
@@ -22,9 +49,18 @@ services:
       - WSJ_EMAIL=${WSJ_EMAIL}
       - WSJ_PASSWORD=${WSJ_PASSWORD}
       - WSJ_STORAGE_PATH=/app/data/.wsj-auth.json
-      - PLAYWRIGHT_WS_ENDPOINT=${PLAYWRIGHT_WS_ENDPOINT}
+      - WSJ_WORKER_URL=http://wsj-worker:8000/scrape
+      - SCRAPER_WORKER_SECRET=${SCRAPER_WORKER_SECRET:-}
+      - MATERIAL_WORKER_SECRET=${MATERIAL_WORKER_SECRET:-}
       - TTS_PROVIDER=${TTS_PROVIDER:-edge}
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - OPENAI_BASE_URL=${OPENAI_BASE_URL:-}
+      - LLM_PROVIDER=${LLM_PROVIDER:-openai-compatible}
+      - LLM_MODEL_HIGH_QUALITY=${LLM_MODEL_HIGH_QUALITY:-gpt-4.1}
+      - LLM_BASE_URL=${LLM_BASE_URL:-${OPENAI_BASE_URL:-}}
+      - LLM_API_KEY=${LLM_API_KEY:-${OPENAI_API_KEY:-}}
+      - LLM_RESPONSE_FORMAT=${LLM_RESPONSE_FORMAT:-json_object}
+      - LLM_TEMPERATURE=${LLM_TEMPERATURE:-0.4}
       - NEXT_PUBLIC_APP_URL=${NEXT_PUBLIC_APP_URL:-http://localhost:3000}
     volumes:
       - ./data:/app/data
@@ -45,6 +81,6 @@ services:
       [
         "sh",
         "-c",
-        "echo 'Triggering initial scrape...' && curl -fsS -X POST http://app:3000/api/scraper && echo 'Initial scrape completed.'",
+        "echo 'Triggering initial scrape...' && curl -fsS -X POST -H \"Authorization: Bearer ${SCRAPER_WORKER_SECRET:-}\" http://app:3000/api/scraper && echo 'Initial scrape completed.'",
       ]
     restart: "no"
