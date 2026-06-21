@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
+import { isAuthorizedByBearer } from "@/lib/api-auth";
 import { generateAudio } from "@/lib/tts/edge-tts";
 
 export async function POST(request: NextRequest) {
@@ -38,6 +39,10 @@ export async function POST(request: NextRequest) {
 
 // Batch generate audio for all sentences in an article
 export async function PUT(request: NextRequest) {
+  if (!isAuthorizedByBearer(request, "MATERIAL_WORKER_SECRET")) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
   try {
     const { articleId, voice, rate } = await request.json();
 

@@ -1,9 +1,9 @@
-import { exec } from "child_process";
+import { execFile } from "child_process";
 import { promisify } from "util";
 import * as fs from "fs";
 import * as path from "path";
 
-const execAsync = promisify(exec);
+const execFileAsync = promisify(execFile);
 
 const AUDIO_DIR = path.join(process.cwd(), "public", "audio");
 
@@ -24,24 +24,59 @@ const DEFAULT_OPTIONS: TTSOptions = {
   pitch: "+0Hz",
 };
 
+export const AVAILABLE_VOICES = [
+  { id: "en-US-AriaNeural", name: "Aria (US Female)", accent: "American" },
+  { id: "en-US-GuyNeural", name: "Guy (US Male)", accent: "American" },
+  { id: "en-GB-SoniaNeural", name: "Sonia (UK Female)", accent: "British" },
+  { id: "en-GB-RyanNeural", name: "Ryan (UK Male)", accent: "British" },
+  { id: "en-AU-NatashaNeural", name: "Natasha (AU Female)", accent: "Australian" },
+];
+
+const VOICE_IDS = new Set(AVAILABLE_VOICES.map((voice) => voice.id));
+const RATE_PATTERN = /^[+-]\d{1,3}%$/;
+const PITCH_PATTERN = /^[+-]\d{1,3}Hz$/;
+
+function normalizeOptions(options: TTSOptions): Required<TTSOptions> {
+  const opts = { ...DEFAULT_OPTIONS, ...options } as Required<TTSOptions>;
+
+  if (!VOICE_IDS.has(opts.voice)) {
+    throw new Error(`Unsupported voice: ${opts.voice}`);
+  }
+  if (!RATE_PATTERN.test(opts.rate)) {
+    throw new Error(`Unsupported rate: ${opts.rate}`);
+  }
+  if (!PITCH_PATTERN.test(opts.pitch)) {
+    throw new Error(`Unsupported pitch: ${opts.pitch}`);
+  }
+
+  return opts;
+}
+
 export async function generateAudio(
   text: string,
   filename: string,
   options: TTSOptions = {}
 ): Promise<string> {
-  const opts = { ...DEFAULT_OPTIONS, ...options };
+  const opts = normalizeOptions(options);
   const outputPath = path.join(AUDIO_DIR, `${filename}.mp3`);
 
   if (fs.existsSync(outputPath)) {
     return `/audio/${filename}.mp3`;
   }
 
-  const escapedText = text.replace(/"/g, '\\"').replace(/'/g, "\\'");
-
-  const cmd = `edge-tts --voice "${opts.voice}" --rate="${opts.rate}" --pitch="${opts.pitch}" --text "${escapedText}" --write-media "${outputPath}"`;
-
   try {
-    await execAsync(cmd);
+    await execFileAsync("edge-tts", [
+      "--voice",
+      opts.voice,
+      "--rate",
+      opts.rate,
+      "--pitch",
+      opts.pitch,
+      "--text",
+      text,
+      "--write-media",
+      outputPath,
+    ]);
     return `/audio/${filename}.mp3`;
   } catch (error) {
     console.error("Edge TTS error:", error);
@@ -68,11 +103,3 @@ export async function generateArticleAudio(
 
   return audioMap;
 }
-
-export const AVAILABLE_VOICES = [
-  { id: "en-US-AriaNeural", name: "Aria (US Female)", accent: "American" },
-  { id: "en-US-GuyNeural", name: "Guy (US Male)", accent: "American" },
-  { id: "en-GB-SoniaNeural", name: "Sonia (UK Female)", accent: "British" },
-  { id: "en-GB-RyanNeural", name: "Ryan (UK Male)", accent: "British" },
-  { id: "en-AU-NatashaNeural", name: "Natasha (AU Female)", accent: "Australian" },
-];

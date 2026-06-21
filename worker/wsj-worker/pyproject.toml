@@ -1,0 +1,13 @@
+[project]
+name = "echoread-wsj-worker"
+version = "0.1.0"
+description = "EchoRead WSJ collection worker powered by browser-use."
+requires-python = ">=3.12,<4.0"
+dependencies = [
+  "browser-use[core]==0.13.1",
+  "fastapi==0.124.4",
+  "uvicorn[standard]==0.40.0",
+]
+
+[tool.uv]
+package = false

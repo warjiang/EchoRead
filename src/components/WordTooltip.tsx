@@ -1,8 +1,13 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { lookupWord, type WordDefinition } from "@/lib/dictionary";
 import { X, Plus } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Separator } from "@/components/ui/separator";
+import { Skeleton } from "@/components/ui/skeleton";
 
 interface WordTooltipProps {
   word: string;
@@ -12,16 +17,25 @@ interface WordTooltipProps {
 }
 
 export function WordTooltip({ word, context, articleId, onClose }: WordTooltipProps) {
-  const [definition, setDefinition] = useState<WordDefinition | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [saved, setSaved] = useState(false);
+  const [lookup, setLookup] = useState<{
+    word: string;
+    definition: WordDefinition | null;
+    loading: boolean;
+  }>({ word, definition: null, loading: true });
+  const [savedState, setSavedState] = useState({ word, saved: false });
 
-  useState(() => {
+  useEffect(() => {
+    let cancelled = false;
+
     lookupWord(word).then((def) => {
-      setDefinition(def);
-      setLoading(false);
+      if (cancelled) return;
+      setLookup({ word, definition: def, loading: false });
     });
-  });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [word]);
 
   const saveToVocabulary = async () => {
     await fetch("/api/vocabulary", {
@@ -29,35 +43,54 @@ export function WordTooltip({ word, context, articleId, onClose }: WordTooltipPr
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ word, context, articleId }),
     });
-    setSaved(true);
+    setSavedState({ word, saved: true });
   };
 
-  return (
-    <div className="absolute z-50 bg-white border shadow-lg rounded-lg p-4 max-w-sm w-72">
-      <div className="flex items-center justify-between mb-2">
-        <h4 className="font-bold text-lg">{word}</h4>
-        <button onClick={onClose} className="p-1 hover:bg-gray-100 rounded">
-          <X className="w-4 h-4" />
-        </button>
-      </div>
+  const loading = lookup.word !== word || lookup.loading;
+  const definition = lookup.word === word ? lookup.definition : null;
+  const saved = savedState.word === word && savedState.saved;
 
-      {loading && <p className="text-sm text-gray-500">Loading...</p>}
+  return (
+    <Card className="absolute z-50 w-72 max-w-sm shadow-lg">
+      <CardHeader>
+        <div className="flex items-start justify-between gap-3">
+          <CardTitle className="truncate text-lg">{word}</CardTitle>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-sm"
+            onClick={onClose}
+            aria-label="Close definition"
+          >
+            <X aria-hidden="true" />
+          </Button>
+        </div>
+      </CardHeader>
+
+      <CardContent className="flex flex-col gap-3">
+      {loading && (
+        <div className="flex flex-col gap-2">
+          <Skeleton className="h-4 w-24" />
+          <Skeleton className="h-4 w-full" />
+          <Skeleton className="h-4 w-3/4" />
+        </div>
+      )}
 
       {definition && (
-        <div className="space-y-2">
+        <div className="flex flex-col gap-3">
           {definition.phonetic && (
-            <p className="text-sm text-gray-500">{definition.phonetic}</p>
+            <p className="text-sm text-muted-foreground">{definition.phonetic}</p>
           )}
           {definition.meanings.slice(0, 2).map((meaning, i) => (
-            <div key={i}>
-              <span className="text-xs font-medium text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded">
+            <div key={i} className="flex flex-col gap-1.5">
+              <Badge variant="outline" className="w-fit">
                 {meaning.partOfSpeech}
-              </span>
-              <p className="text-sm text-gray-700 mt-1">
+              </Badge>
+              <p className="text-sm leading-6 text-foreground">
                 {meaning.definitions[0]?.definition}
               </p>
               {meaning.definitions[0]?.example && (
-                <p className="text-xs text-gray-500 italic mt-0.5">
+                <p className="text-xs leading-5 text-muted-foreground">
                   &quot;{meaning.definitions[0].example}&quot;
                 </p>
               )}
@@ -67,17 +100,21 @@ export function WordTooltip({ word, context, articleId, onClose }: WordTooltipPr
       )}
 
       {!loading && !definition && (
-        <p className="text-sm text-gray-500">No definition found.</p>
+        <p className="text-sm text-muted-foreground">No definition found.</p>
       )}
 
-      <button
+      <Separator />
+
+      <Button
+        type="button"
         onClick={saveToVocabulary}
         disabled={saved}
-        className="mt-3 flex items-center gap-1 text-sm px-3 py-1.5 bg-green-50 text-green-700 rounded hover:bg-green-100 disabled:opacity-50"
+        variant={saved ? "secondary" : "default"}
       >
-        <Plus className="w-3 h-3" />
-        {saved ? "Saved!" : "Add to Vocabulary"}
-      </button>
-    </div>
+        <Plus data-icon="inline-start" aria-hidden="true" />
+        {saved ? "Saved" : "Add to Vocabulary"}
+      </Button>
+      </CardContent>
+    </Card>
   );
 }

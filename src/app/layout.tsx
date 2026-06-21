@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
-import Link from "next/link";
+import { AppNav } from "@/components/AppNav";
+import { TooltipProvider } from "@/components/ui/tooltip";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -14,7 +15,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Shadow Reading - Learn English with WSJ",
+  title: "EchoRead - Shadow Reading with WSJ",
   description: "Practice English shadow reading with daily WSJ news articles",
 };
 
@@ -28,24 +29,11 @@ export default function RootLayout({
       lang="en"
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
-      <body className="min-h-full flex flex-col bg-gray-50">
-        <nav className="bg-white border-b px-6 py-3 flex items-center justify-between">
-          <Link href="/" className="text-xl font-bold text-blue-600">
-            📖 Shadow Reading
-          </Link>
-          <div className="flex items-center gap-4 text-sm">
-            <Link href="/" className="text-gray-600 hover:text-blue-600">
-              Articles
-            </Link>
-            <Link href="/vocabulary" className="text-gray-600 hover:text-blue-600">
-              Vocabulary
-            </Link>
-            <Link href="/history" className="text-gray-600 hover:text-blue-600">
-              History
-            </Link>
-          </div>
-        </nav>
-        <main className="flex-1">{children}</main>
+      <body className="flex min-h-full flex-col bg-background">
+        <TooltipProvider>
+          <AppNav />
+          <main className="flex-1">{children}</main>
+        </TooltipProvider>
       </body>
     </html>
   );
