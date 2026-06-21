@@ -1,6 +1,12 @@
 import { and, asc, eq, lt, lte, sql } from "drizzle-orm";
 import { recordPipelineEvent } from "@/lib/admin/pipeline";
 import { createId, db, schema, touch } from "@/lib/db";
+import {
+  enqueueWsjWorkerTask,
+  listCompletedWsjWorkerTasks,
+  markWsjWorkerTaskConsumed,
+  parseWsjWorkerTaskResult,
+} from "@/lib/wsj-worker/tasks";
 import type { ArticleAudio, ArticleAudioJob } from "@/db/schema";
 
 export type ArticleAudioStatus =
@@ -104,42 +110,6 @@ async function recordAudioEvent(input: Parameters<typeof recordPipelineEvent>[0]
   });
 }
 
-function callbackBaseUrl(): string {
-  const baseUrl =
-    process.env.SCRAPER_CALLBACK_BASE_URL ||
-    process.env.NEXT_PUBLIC_APP_URL ||
-    "http://localhost:3000";
-
-  return baseUrl.replace(/\/$/, "");
-}
-
-export function normalizeWorkerAudioJobsUrl(rawUrl: string | undefined): string {
-  const url = rawUrl || "http://wsj-worker:8000/audio/jobs";
-  if (/\/audio\/jobs\/?$/.test(url)) {
-    return url;
-  }
-  return url.replace(/\/(?:jobs|scrape)\/?$/, "/audio/jobs");
-}
-
-export function normalizeWorkerAudioProcessUrl(rawUrl: string | undefined): string {
-  const url = rawUrl || "http://wsj-worker:8000/audio/process";
-  if (/\/audio\/process\/?$/.test(url)) {
-    return url;
-  }
-  if (/\/audio\/jobs\/?$/.test(url)) {
-    return url.replace(/\/audio\/jobs\/?$/, "/audio/process");
-  }
-  return url.replace(/\/(?:jobs|scrape)\/?$/, "/audio/process");
-}
-
-function workerJobsUrl(): string {
-  return normalizeWorkerAudioJobsUrl(process.env.ORIGINAL_AUDIO_WORKER_URL || process.env.WSJ_WORKER_URL);
-}
-
-function workerProcessUrl(): string {
-  return normalizeWorkerAudioProcessUrl(process.env.ORIGINAL_AUDIO_WORKER_URL || process.env.WSJ_WORKER_URL);
-}
-
 export function serializeArticleAudio(
   audio: ArticleAudio | null | undefined,
   job?: ArticleAudioJob | null
@@ -226,12 +196,12 @@ export async function retryArticleAudioJob(articleId: string, timeoutSeconds: un
       .onConflictDoUpdate({
         target: schema.articleAudio.articleId,
         set: {
-        status: "pending",
-        lastError: null,
-        startedAt: null,
-        finishedAt: null,
+          status: "pending",
+          lastError: null,
+          startedAt: null,
+          finishedAt: null,
           updatedAt: now,
-      },
+        },
       })
       .run();
 
@@ -253,16 +223,16 @@ export async function retryArticleAudioJob(articleId: string, timeoutSeconds: un
       .onConflictDoUpdate({
         target: schema.articleAudioJobs.articleId,
         set: {
-        status: "pending",
-        attempts: 0,
-        maxAttempts: getMaxAttempts(),
-        timeoutSeconds: normalizedTimeout,
-        runAfter: now,
-        lockedAt: null,
-        workerJobId: null,
-        lastError: null,
+          status: "pending",
+          attempts: 0,
+          maxAttempts: getMaxAttempts(),
+          timeoutSeconds: normalizedTimeout,
+          runAfter: now,
+          lockedAt: null,
+          workerJobId: null,
+          lastError: null,
           updatedAt: now,
-      },
+        },
       })
       .run();
 
@@ -325,7 +295,7 @@ async function claimJobs(limit: number): Promise<ArticleAudioJob[]> {
       .set({
         status: "processing",
         lockedAt,
-        workerJobId: candidate.id,
+        workerJobId: null,
         attempts: sql`${schema.articleAudioJobs.attempts} + 1`,
         lastError: null,
         updatedAt: lockedAt,
@@ -426,7 +396,7 @@ async function markRetryOrFailed(job: ArticleAudioJob, error: unknown): Promise<
   });
 }
 
-async function startWorkerJob(job: ArticleAudioJob): Promise<void> {
+async function dispatchWorkerTask(job: ArticleAudioJob): Promise<string> {
   const article = await db.query.articles.findFirst({
     where: eq(schema.articles.id, job.articleId),
     columns: { id: true, title: true, url: true },
@@ -455,75 +425,96 @@ async function startWorkerJob(job: ArticleAudioJob): Promise<void> {
     .where(eq(schema.articleAudio.articleId, job.articleId))
     .run();
 
-  const secret = process.env.SCRAPER_WORKER_SECRET;
-  const headers: Record<string, string> = {
-    "Content-Type": "application/json",
-  };
-  if (secret) {
-    headers.Authorization = `Bearer ${secret}`;
-  }
-
-  const body = JSON.stringify({
-    jobId: job.id,
-    articleId: article.id,
-    articleUrl: article.url,
-    title: article.title,
-    sentences,
-    callbackUrl: `${callbackBaseUrl()}/api/original-audio/ingest`,
-    callbackSecret: secret || null,
-    timeoutSeconds: job.timeoutSeconds,
-    coverageThreshold: getMinCoverage(),
+  const task = await enqueueWsjWorkerTask({
+    kind: "audio",
+    domainJobId: job.id,
+    domainAttempt: job.attempts,
+    payload: {
+      jobId: job.id,
+      articleId: article.id,
+      articleUrl: article.url,
+      title: article.title,
+      sentences,
+      timeoutSeconds: job.timeoutSeconds,
+      coverageThreshold: getMinCoverage(),
+    },
   });
 
-  if (process.env.ORIGINAL_AUDIO_WORKER_MODE === "callback") {
-    const response = await fetch(workerJobsUrl(), {
-      method: "POST",
-      headers,
-      body,
-      cache: "no-store",
-    });
+  await db
+    .update(schema.articleAudioJobs)
+    .set({
+      workerJobId: task.id,
+      updatedAt: touch(),
+    })
+    .where(eq(schema.articleAudioJobs.id, job.id))
+    .run();
 
-    const data = (await response.json().catch(() => null)) as { error?: string } | null;
-    if (!response.ok) {
-      throw new Error(data?.error || `Original-audio worker rejected job with ${response.status}`);
-    }
-    return;
-  }
-
-  const response = await fetch(workerProcessUrl(), {
-    method: "POST",
-    headers,
-    body,
-    cache: "no-store",
-  });
-
-  const data = (await response.json().catch(() => null)) as (IngestArticleAudioInput & { error?: string }) | null;
-  if (!response.ok) {
-    throw new Error(data?.error || `Original-audio worker rejected job with ${response.status}`);
-  }
-  if (!data || data.jobId !== job.id || data.articleId !== article.id) {
-    throw new Error("Original-audio worker returned an invalid job payload");
-  }
-
-  const result = await ingestArticleAudioUpdate(data);
-  if (!result.job) {
-    throw new Error("Original-audio worker result did not match a queued job");
-  }
+  return task.id;
 }
 
 export async function processArticleAudioJobs(limit = 2): Promise<{
   claimed: number;
+  completed: number;
   accepted: number;
   failed: number;
-  results: Array<{ jobId: string; status: "accepted" | "failed"; error?: string }>;
+  results: Array<{ jobId: string; status: "accepted" | "completed" | "failed"; taskId?: string; error?: string }>;
 }> {
-  const jobs = await claimJobs(limit);
-  const results: Array<{ jobId: string; status: "accepted" | "failed"; error?: string }> = [];
+  const results: Array<{ jobId: string; status: "accepted" | "completed" | "failed"; taskId?: string; error?: string }> = [];
+
+  const completedTasks = await listCompletedWsjWorkerTasks("audio", limit);
+  for (const task of completedTasks) {
+    const job = await db.query.articleAudioJobs.findFirst({ where: eq(schema.articleAudioJobs.id, task.domainJobId) });
+    try {
+      if (!job || job.attempts !== task.domainAttempt || job.status !== "processing") {
+        await markWsjWorkerTaskConsumed(task.id);
+        continue;
+      }
+
+      if (task.status === "failed") {
+        const error = task.lastError || "Original-audio Python worker failed";
+        await markRetryOrFailed(job, error);
+        results.push({ jobId: job.id, status: "failed", taskId: task.id, error });
+        await markWsjWorkerTaskConsumed(task.id);
+        continue;
+      }
+
+      const data = parseWsjWorkerTaskResult(task, "audio") as IngestArticleAudioInput | null;
+      if (!data || data.jobId !== job.id || data.articleId !== job.articleId) {
+        throw new Error("Original-audio worker task returned an invalid job payload");
+      }
+
+      const result = await ingestArticleAudioUpdate(data);
+      if (!result.job) {
+        throw new Error("Original-audio worker result did not match a queued job");
+      }
+      results.push({ jobId: job.id, status: data.status === "failed" ? "failed" : "completed", taskId: task.id });
+      await markWsjWorkerTaskConsumed(task.id);
+    } catch (error) {
+      if (job) {
+        await markRetryOrFailed(job, error);
+        results.push({ jobId: job.id, status: "failed", taskId: task.id, error: truncateError(error) });
+      }
+      await markWsjWorkerTaskConsumed(task.id);
+    }
+  }
+
+  const remainingLimit = Math.max(0, limit - completedTasks.length);
+  const jobs = remainingLimit > 0 ? await claimJobs(remainingLimit) : [];
 
   for (const job of jobs) {
     try {
-      await startWorkerJob(job);
-      results.push({ jobId: job.id, status: "accepted" });
+      const taskId = await dispatchWorkerTask(job);
+      await recordAudioEvent({
+        scope: "audio",
+        entityType: "articleAudioJob",
+        entityId: job.id,
+        articleId: job.articleId,
+        jobId: job.id,
+        status: "queued",
+        message: "Original audio worker task queued",
+        metadata: { taskId, attempts: job.attempts },
+      });
+      results.push({ jobId: job.id, status: "accepted", taskId });
     } catch (error) {
       await markRetryOrFailed(job, error);
       results.push({ jobId: job.id, status: "failed", error: truncateError(error) });
@@ -531,7 +522,8 @@ export async function processArticleAudioJobs(limit = 2): Promise<{
   }
 
   return {
-    claimed: jobs.length,
+    claimed: completedTasks.length + jobs.length,
+    completed: results.filter((result) => result.status === "completed").length,
     accepted: results.filter((result) => result.status === "accepted").length,
     failed: results.filter((result) => result.status === "failed").length,
     results,
@@ -638,18 +630,18 @@ async function markSucceeded(input: IngestArticleAudioInput): Promise<ArticleAud
       .onConflictDoUpdate({
         target: schema.articleAudio.articleId,
         set: {
-        status: "ready",
-        sourceUrl: input.sourceUrl || null,
-        sourceAudioUrl: input.sourceAudioUrl || null,
-        sourcePath: input.sourcePath || null,
-        durationMs: input.durationMs || null,
-        coverageRatio: effectiveCoverage,
-        sentenceCount,
-        clippedCount: readyClips.length,
-        lastError: null,
+          status: "ready",
+          sourceUrl: input.sourceUrl || null,
+          sourceAudioUrl: input.sourceAudioUrl || null,
+          sourcePath: input.sourcePath || null,
+          durationMs: input.durationMs || null,
+          coverageRatio: effectiveCoverage,
+          sentenceCount,
+          clippedCount: readyClips.length,
+          lastError: null,
           finishedAt: now,
           updatedAt: now,
-      },
+        },
       })
       .run();
 
@@ -738,12 +730,12 @@ export async function ingestArticleAudioUpdate(input: IngestArticleAudioInput): 
         .onConflictDoUpdate({
           target: schema.articleAudio.articleId,
           set: {
-          status: "processing",
+            status: "processing",
             startedAt: now,
-          finishedAt: null,
-          lastError: null,
+            finishedAt: null,
+            lastError: null,
             updatedAt: now,
-        },
+          },
         })
         .run();
     });

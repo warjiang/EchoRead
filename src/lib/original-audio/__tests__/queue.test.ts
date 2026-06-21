@@ -1,10 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import {
   getMinCoverage,
   isCoverageReady,
-  normalizeWorkerAudioProcessUrl,
-  normalizeWorkerAudioJobsUrl,
   normalizeTimeoutSeconds,
   serializeArticleAudio,
 } from "@/lib/original-audio/queue";
@@ -17,27 +16,10 @@ test("normalizes original-audio timeout seconds", () => {
   assert.equal(normalizeTimeoutSeconds(999999), 3600);
 });
 
-test("normalizes original-audio worker URLs from manual and docker scraper URLs", () => {
-  assert.equal(
-    normalizeWorkerAudioJobsUrl("http://localhost:8000/scrape"),
-    "http://localhost:8000/audio/jobs"
-  );
-  assert.equal(
-    normalizeWorkerAudioJobsUrl("http://wsj-worker:8000/jobs"),
-    "http://wsj-worker:8000/audio/jobs"
-  );
-  assert.equal(
-    normalizeWorkerAudioJobsUrl("http://localhost:8000/audio/jobs"),
-    "http://localhost:8000/audio/jobs"
-  );
-  assert.equal(
-    normalizeWorkerAudioProcessUrl("http://localhost:8000/audio/jobs"),
-    "http://localhost:8000/audio/process"
-  );
-  assert.equal(
-    normalizeWorkerAudioProcessUrl("http://wsj-worker:8000/jobs"),
-    "http://wsj-worker:8000/audio/process"
-  );
+test("original-audio queue no longer depends on HTTP worker fetch", () => {
+  const source = readFileSync("src/lib/original-audio/queue.ts", "utf-8");
+  assert.equal(source.includes("fetch("), false);
+  assert.equal(source.includes("ORIGINAL_AUDIO_WORKER_URL"), false);
 });
 
 test("evaluates readiness against coverage threshold", () => {

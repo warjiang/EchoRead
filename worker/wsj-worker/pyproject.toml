@@ -5,9 +5,8 @@ description = "EchoRead deterministic WSJ collection worker."
 requires-python = ">=3.12,<4.0"
 dependencies = [
   "faster-whisper==1.2.1",
-  "fastapi==0.124.4",
+  "pydantic==2.12.5",
   "playwright==1.60.0",
-  "uvicorn[standard]==0.40.0",
 ]
 
 [tool.uv]

@@ -4,6 +4,7 @@
         "codec",
         "cpus",
         "domcontentloaded",
+        "esbuild",
         "ffprobe",
         "libmp",
         "livecoverage",
@@ -11,6 +12,7 @@
         "nokey",
         "noprint",
         "seccomp",
-        "TINYPROXY"
+        "TINYPROXY",
+        "unrs"
     ]
 }

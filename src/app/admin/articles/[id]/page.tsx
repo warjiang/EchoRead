@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { ArrowLeft, FileText, Headphones, Trash2 } from "lucide-react";
@@ -30,6 +31,14 @@ function statusVariant(status: string): "default" | "secondary" | "destructive" 
   if (status === "pending") return "outline";
   return "default";
 }
+
+export const metadata: Metadata = {
+  title: "Admin Article",
+  robots: {
+    index: false,
+    follow: false,
+  },
+};
 
 export default async function AdminArticlePage({
   params,

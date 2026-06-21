@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import { desc } from "drizzle-orm";
 import { db, schema } from "@/lib/db";
 import { ArticleCard } from "@/components/ArticleCard";
@@ -14,6 +15,14 @@ import {
   EmptyTitle,
 } from "@/components/ui/empty";
 import { Newspaper, RefreshCw } from "lucide-react";
+
+export const metadata: Metadata = {
+  title: {
+    absolute: "Articles | EchoRead",
+  },
+  description:
+    "Browse current WSJ articles prepared for EchoRead shadow reading practice.",
+};
 
 async function getLatestScrapeJob() {
   return db.query.scrapeJobs.findFirst({

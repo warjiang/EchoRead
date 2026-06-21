@@ -45,9 +45,9 @@ Open [http://localhost:3000](http://localhost:3000)
 WSJ collection runs through a self-hosted worker that uses Playwright over CDP plus deterministic DOM / JSON-LD extraction. LLMs are not used for scraping; they are only used later for shadow-reading material generation.
 
 - `chrome`: optional self-hosted Chromium with CDP on Docker-internal port `9222`
-- `wsj-worker`: Python Playwright service connected to `BROWSER_CDP_URL`, managed with `uv`
-- `app`: Next.js service that creates scrape jobs, receives worker callbacks for compatibility, and serves UI/API state
-- `worker`: TypeScript queue worker that claims Drizzle-backed SQLite jobs, calls `wsj-worker`, stores articles, and processes material/original-audio queues
+- `wsj-worker`: Python Playwright DB worker connected to `BROWSER_CDP_URL`, managed with `uv`
+- `app`: Next.js service that creates scrape jobs and serves UI/API state
+- `worker`: TypeScript queue worker that claims Drizzle-backed SQLite jobs, dispatches Python-bound tasks through SQLite, stores articles, and processes material/original-audio queues
 
 The Chrome profile is persisted at `./data/chrome-profile` when you use the bundled `chrome` service. Complete WSJ login once through the browser profile you expose to CDP, then subsequent collection jobs reuse that authenticated profile. This keeps WSJ auth local to your deployment.
 
@@ -58,11 +58,9 @@ OPENAI_API_KEY=...
 OPENAI_BASE_URL=https://api.openai.com/v1
 SCRAPER_WORKER_SECRET=choose-a-secret
 SCRAPER_MAX_ATTEMPTS=3
-SCRAPER_WORKER_TIMEOUT_SECONDS=600
 MATERIAL_WORKER_SECRET=choose-another-secret
+DATABASE_URL=file:./data/shadow-reading.db
 BROWSER_CDP_URL=http://chrome:9222
-WSJ_WORKER_URL=http://wsj-worker:8000/scrape
-ORIGINAL_AUDIO_WORKER_URL=http://wsj-worker:8000/audio/process
 ORIGINAL_AUDIO_MIN_COVERAGE=0.9
 ORIGINAL_AUDIO_MAX_ATTEMPTS=3
 ORIGINAL_AUDIO_TIMEOUT_SECONDS=300
@@ -70,7 +68,6 @@ ORIGINAL_AUDIO_ALIGNMENT_MIN_SCORE=0.62
 ORIGINAL_AUDIO_ALIGNMENT_SEARCH_WORDS=240
 ORIGINAL_AUDIO_ALIGNMENT_INITIAL_SEARCH_WORDS=480
 AUDIO_PUBLIC_DIR=./public/audio
-SCRAPER_CALLBACK_BASE_URL=http://app:3000
 ```
 
 Use only `BROWSER_CDP_URL` to choose the browser:
@@ -104,7 +101,6 @@ Manual worker checks:
 
 ```bash
 docker compose exec chrome curl -fsS http://localhost:9222/json/version
-curl -fsS http://localhost:8000/health
 
 # Queue an async scrape job through the app. The response includes jobId.
 curl -fsS -X POST \
@@ -115,28 +111,22 @@ curl -fsS -X POST \
 
 # Process pending scrape/material/original-audio jobs once.
 pnpm worker:once
+pnpm worker:python:once
 
 # Or run only one stage while debugging.
 pnpm worker:scrape
 pnpm worker:materials
 pnpm worker:audio
+cd worker/wsj-worker && uv run python -m app.runner --once --stage scrape
+cd worker/wsj-worker && uv run python -m app.runner --once --stage audio
 
 # Check job status.
 curl -fsS \
   -H "Authorization: Bearer $SCRAPER_WORKER_SECRET" \
   http://localhost:3000/api/scraper/jobs/<jobId>
-
-# Synchronous worker check, useful for debugging deterministic extraction.
-curl -fsS -X POST \
-  -H "Authorization: Bearer $SCRAPER_WORKER_SECRET" \
-  -H "Content-Type: application/json" \
-  -d '{"maxArticles": 2}' \
-  http://localhost:8000/scrape
 ```
 
-The app no longer waits for WSJ collection to finish. `POST /api/scraper` creates a pending `ScrapeJob` and returns `202` immediately. The standalone TypeScript worker claims that job, calls the Python `/scrape` endpoint, stores returned articles, and continues material/original-audio processing. The legacy callback endpoint `POST /api/scraper/ingest` remains available for manual or older worker flows.
-
-When using legacy callback endpoints outside Docker, make sure `SCRAPER_CALLBACK_BASE_URL` points to an address the Python worker can reach. For local app + local worker, `http://localhost:3000` is fine. In Docker Compose, use `http://app:3000`.
+The app no longer waits for WSJ collection to finish. `POST /api/scraper` creates a pending `ScrapeJob` and returns `202` immediately. The standalone TypeScript worker claims that job and creates a `WsjWorkerTask`; the Python worker polls SQLite, performs browser/audio work, and writes the result back to that task. A later TypeScript worker pass ingests completed task results into articles, sentences, material jobs, and original-audio state. There are no worker/callback HTTP endpoints in the primary pipeline.
 
 ## Pipeline Admin Console
 
@@ -222,9 +212,8 @@ uv lock
 This project supports async generation of a high-quality shadow-reading training package per article.
 
 - Data models: `TrainingPackage` + `MaterialJob`
-- Queue trigger: new article ingestion from the scrape queue worker or compatible scrape callbacks
+- Queue trigger: new article ingestion from the scrape queue worker
 - Worker command: `pnpm worker:materials`
-- Compatibility endpoint: `POST /api/materials/worker?limit=2`
 - Regenerate endpoint: `POST /api/articles/:id/materials/regenerate`
 - Query endpoint: `GET /api/articles/:id/materials`
 

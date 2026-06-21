@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import { eq } from "drizzle-orm";
 import { db, schema } from "@/lib/db";
 import { notFound } from "next/navigation";
@@ -15,6 +16,31 @@ import { cn } from "@/lib/utils";
 
 interface Props {
   params: Promise<{ id: string }>;
+}
+
+export async function generateMetadata({ params }: Props): Promise<Metadata> {
+  const { id } = await params;
+  const article = await db.query.articles.findFirst({
+    where: eq(schema.articles.id, id),
+    columns: {
+      title: true,
+      summary: true,
+      category: true,
+    },
+  });
+
+  if (!article) {
+    return {
+      title: "Article Not Found",
+    };
+  }
+
+  return {
+    title: article.title,
+    description:
+      article.summary ||
+      `Practice shadow reading with this ${article.category || "WSJ"} article in EchoRead.`,
+  };
 }
 
 export default async function ArticleDetailPage({ params }: Props) {
@@ -147,7 +173,7 @@ export default async function ArticleDetailPage({ params }: Props) {
                 href={article.url}
                 target="_blank"
                 rel="noopener noreferrer"
-              className="truncate hover:text-foreground focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
+              className="min-w-0 flex-1 truncate hover:text-foreground focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
               >
                 {article.url}
               </a>

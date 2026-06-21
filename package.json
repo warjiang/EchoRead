@@ -20,6 +20,8 @@
     "worker:materials": "tsx scripts/pipeline-worker.ts --once --stage=materials",
     "worker:audio": "tsx scripts/pipeline-worker.ts --once --stage=audio",
     "worker:e2e": "tsx scripts/pipeline-worker.ts --once --stage=all",
+    "worker:python": "cd worker/wsj-worker && uv run python -m app.runner",
+    "worker:python:once": "cd worker/wsj-worker && uv run python -m app.runner --once",
     "cleanup:scraped": "tsx scripts/cleanup-scraped-data.ts",
     "wsj:login": "tsx scripts/wsj-login.ts",
     "db:generate": "drizzle-kit generate",

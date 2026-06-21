@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { normalizeMaxArticles, normalizeWorkerScrapeUrl, toScrapeJobApi } from "@/lib/scraper/jobs";
+import { readFileSync } from "node:fs";
+import { normalizeMaxArticles, toScrapeJobApi } from "@/lib/scraper/jobs";
 import type { ScrapeJob } from "@/db/schema";
 
 test("normalizes scrape article limits", () => {
@@ -10,10 +11,10 @@ test("normalizes scrape article limits", () => {
   assert.equal(normalizeMaxArticles(99), 10);
 });
 
-test("normalizes worker scrape URLs from async and synchronous endpoints", () => {
-  assert.equal(normalizeWorkerScrapeUrl(undefined), "http://wsj-worker:8000/scrape");
-  assert.equal(normalizeWorkerScrapeUrl("http://localhost:8000/jobs"), "http://localhost:8000/scrape");
-  assert.equal(normalizeWorkerScrapeUrl("http://localhost:8000/scrape"), "http://localhost:8000/scrape");
+test("scrape worker service no longer depends on HTTP fetch", () => {
+  const source = readFileSync("src/lib/scraper/jobs.ts", "utf-8");
+  assert.equal(source.includes("fetch("), false);
+  assert.equal(source.includes("WSJ_WORKER_URL"), false);
 });
 
 test("serializes scrape jobs for API responses", () => {

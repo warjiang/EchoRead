@@ -1,19 +1,19 @@
+import asyncio
 import unittest
 from datetime import timezone
 from unittest.mock import patch
 
-from fastapi.testclient import TestClient
-from app.main import (
+from app.audio import align_sentences_to_words, build_audio_job_callback, extension_from_source, tokenize_words
+from app.models import (
     AudioJobCallback,
+    AudioJobRequest,
     AudioSentenceInput,
     AudioSource,
     WordTiming,
-    align_sentences_to_words,
-    app,
+)
+from app.scraper import (
     build_article_from_snapshot,
-    extension_from_source,
     normalize_article_url,
-    tokenize_words,
 )
 
 
@@ -216,7 +216,7 @@ class ScraperTests(unittest.TestCase):
 
         self.assertEqual([timing.sentenceId for timing in timings], ["s2"])
 
-    def test_sync_audio_process_endpoint_returns_audio_callback(self):
+    def test_audio_callback_builder_returns_audio_callback(self):
         async def fake_process_audio_job(request):
             return AudioJobCallback(
                 jobId=request.jobId,
@@ -225,23 +225,19 @@ class ScraperTests(unittest.TestCase):
                 errorMessage="No accessible WSJ article audio found",
             )
 
-        with patch("app.main.process_audio_job", side_effect=fake_process_audio_job):
-            response = TestClient(app).post(
-                "/audio/process",
-                json={
-                    "jobId": "job_123",
-                    "articleId": "article_123",
-                    "articleUrl": "https://www.wsj.com/articles/story-12345678",
-                    "title": "A Long Enough Article Title",
-                    "sentences": [{"id": "s1", "index": 0, "text": "Stocks rose today."}],
-                    "callbackUrl": "http://localhost:3000/api/original-audio/ingest",
-                    "timeoutSeconds": 300,
-                    "coverageThreshold": 0.9,
-                },
+        with patch("app.audio.process_audio_job", side_effect=fake_process_audio_job):
+            request = AudioJobRequest(
+                jobId="job_123",
+                articleId="article_123",
+                articleUrl="https://www.wsj.com/articles/story-12345678",
+                title="A Long Enough Article Title",
+                sentences=[{"id": "s1", "index": 0, "text": "Stocks rose today."}],
+                timeoutSeconds=300,
+                coverageThreshold=0.9,
             )
+            callback = asyncio.run(build_audio_job_callback(request))
 
-        self.assertEqual(response.status_code, 200)
-        payload = response.json()
+        payload = callback.model_dump(mode="json")
         self.assertEqual(payload["jobId"], "job_123")
         self.assertEqual(payload["articleId"], "article_123")
         self.assertEqual(payload["status"], "unavailable")

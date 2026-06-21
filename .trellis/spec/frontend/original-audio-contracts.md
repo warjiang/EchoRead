@@ -13,10 +13,10 @@
   - `ArticleAudio.articleId` is unique and owns article-level original-audio state.
   - `ArticleAudioJob.articleId` is unique and owns retry/timeout state.
   - `Sentence.wsjAudioUrl`, `wsjAudioStartMs`, `wsjAudioEndMs`, and `wsjAudioStatus` own WSJ-derived sentence playback.
-- Worker API:
-  - `POST /audio/jobs` accepts `{ jobId, articleId, articleUrl, title, sentences, callbackUrl, callbackSecret, timeoutSeconds, coverageThreshold }`.
-  - Worker posts callbacks to `POST /api/original-audio/ingest`.
-  - `POST /audio/process` accepts the same payload and returns the same callback payload synchronously for the standalone TS worker path.
+- Worker task:
+  - TS worker creates `WsjWorkerTask.kind = "audio"` with payload `{ jobId, articleId, articleUrl, title, sentences, timeoutSeconds, coverageThreshold }`.
+  - Python worker polls SQLite, processes the task, and writes the former callback payload into `WsjWorkerTask.resultJson`.
+  - TS worker consumes completed task results through `ingestArticleAudioUpdate`.
 - Retry API:
   - `POST /api/articles/:id/original-audio/retry` accepts `{ timeoutSeconds }`.
 
@@ -24,10 +24,10 @@
 
 - `ArticleAudio.status` values: `pending`, `processing`, `ready`, `unavailable`, `failed`.
 - `Sentence.wsjAudioStatus` values: `pending`, `ready`, `unavailable`, `failed`.
-- Worker callback statuses: `running`, `succeeded`, `unavailable`, `failed`.
-- Primary worker orchestration uses the standalone TS worker plus Python `/audio/process`; `/audio/jobs` remains available for compatibility callback flows.
+- Worker result statuses: `running`, `succeeded`, `unavailable`, `failed`.
+- Primary worker orchestration uses the standalone TS worker plus Python DB-polled `WsjWorkerTask`; no original-audio worker/callback HTTP routes are used.
 - Required env keys for Docker flow:
-  - `ORIGINAL_AUDIO_WORKER_URL`
+  - `DATABASE_URL`
   - `ORIGINAL_AUDIO_MIN_COVERAGE`
   - `ORIGINAL_AUDIO_MAX_ATTEMPTS`
   - `ORIGINAL_AUDIO_TIMEOUT_SECONDS`
@@ -41,11 +41,10 @@
 
 ### 4. Validation & Error Matrix
 
-- Invalid worker callback payload -> `400` from `/api/original-audio/ingest`.
-- Missing or mismatched audio job -> `404` from `/api/original-audio/ingest`.
-- Unauthorized worker or retry request -> `401`.
-- Worker `unavailable` callback -> `ArticleAudio.status = unavailable`; do not consume retry attempts indefinitely.
-- Worker `failed` callback or worker-start failure -> retry until `maxAttempts`, then `ArticleAudio.status = failed`.
+- Unauthorized retry request -> `401`.
+- Missing, stale, or mismatched `WsjWorkerTask` result -> consume stale task when attempts no longer match; otherwise retry/fail the domain job.
+- Worker `unavailable` result -> `ArticleAudio.status = unavailable`; do not consume retry attempts indefinitely.
+- Worker `failed` result or Python task failure -> retry until `maxAttempts`, then `ArticleAudio.status = failed`.
 - Coverage below `ORIGINAL_AUDIO_MIN_COVERAGE` -> treat as retryable failure until attempts are exhausted.
 - Sentence alignment confidence below `ORIGINAL_AUDIO_ALIGNMENT_MIN_SCORE` -> omit that sentence clip; do not cut a guessed clip.
 - Manual retry -> reset job attempts to `0`, apply custom timeout, reset sentence WSJ clip fields to pending.
@@ -54,7 +53,7 @@
 
 - Good: Article has source narration, coverage is at least threshold, `SentencePlayer` plays `wsjAudioUrl` and never calls `/api/tts`.
 - Base: Article has no accessible narration, article page remains readable and shadow-reading entry is disabled.
-- Bad: Worker rejects or times out; job retries, then failed state exposes manual retry with custom timeout.
+- Bad: Python worker task fails or times out; job retries, then failed state exposes manual retry with custom timeout.
 - Bad: Audio starts with title/intro/author text; aligner skips those words before matching the first stored article sentence.
 - Bad: Narration wording differs too much from stored article text; aligner marks those sentences unavailable instead of producing shifted clips.
 
@@ -62,7 +61,7 @@
 
 - Unit tests for timeout normalization and coverage threshold behavior.
 - Unit tests for API serialization of article-audio state.
-- Worker tests for audio helper behavior, intro-skipping alignment, small narration text differences, and low-confidence rejection.
+- Worker tests for DB task claim/complete/fail behavior, audio helper behavior, intro-skipping alignment, small narration text differences, and low-confidence rejection.
 - Existing scraper ingest tests must still pass after audio enqueue is added.
 - Lint/type-check must verify UI uses typed article-audio state and does not locally redefine callback contracts.
 

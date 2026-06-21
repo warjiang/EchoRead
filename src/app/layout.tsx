@@ -15,7 +15,10 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "EchoRead - Shadow Reading with WSJ",
+  title: {
+    default: "EchoRead - Shadow Reading with WSJ",
+    template: "%s | EchoRead",
+  },
   description: "Practice English shadow reading with daily WSJ news articles",
 };
 

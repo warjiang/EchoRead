@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import { desc, eq } from "drizzle-orm";
 import { db, schema } from "@/lib/db";
 import { BarChart3, Clock, BookOpen } from "lucide-react";
@@ -15,6 +16,12 @@ import {
   EmptyMedia,
   EmptyTitle,
 } from "@/components/ui/empty";
+
+export const metadata: Metadata = {
+  title: "Learning History",
+  description:
+    "Track EchoRead article sessions, practice time, and shadow reading completion.",
+};
 
 export default async function HistoryPage() {
   const rows = await db

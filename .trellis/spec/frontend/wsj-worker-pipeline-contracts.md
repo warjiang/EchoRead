@@ -12,50 +12,56 @@
 - DB:
   - `ScrapeJob.status` values are `pending`, `running`, `succeeded`, `failed`.
   - `ScrapeJob` owns scrape retry state through `attempts`, `maxAttempts`, `runAfter`, `lockedAt`, and `lastError`.
+  - `WsjWorkerTask` is the only Python-bound durable channel. It stores `kind`, `domainJobId`, `domainAttempt`, `status`, `payloadJson`, `resultJson`, `lockedAt`, `lastError`, `startedAt`, `finishedAt`, `consumedAt`, and timestamps.
+  - `WsjWorkerTask.kind` values are `scrape` and `audio`; `status` values are `pending`, `running`, `succeeded`, and `failed`.
+  - `WsjWorkerTask` has a unique key on `kind + domainJobId + domainAttempt`.
 - Next.js API:
   - `POST /api/scraper` accepts `{ maxArticles? }`, creates a pending `ScrapeJob`, and returns `202` without contacting Python.
-  - `POST /api/scraper/ingest` remains a compatibility callback endpoint for `{ jobId, status, articles?, errorMessage? }`.
+  - Worker/callback API routes such as `/api/scraper/ingest`, `/api/materials/worker`, `/api/original-audio/worker`, and `/api/original-audio/ingest` do not exist.
 - TypeScript worker:
   - `pnpm worker` runs the long-lived queue loop.
   - `pnpm worker:once` runs scrape, material, and original-audio processing once.
   - `pnpm worker:scrape`, `pnpm worker:materials`, and `pnpm worker:audio` run one stage once.
 - Python worker:
-  - `POST /scrape` accepts `{ maxArticles }` and returns `{ articles }`.
-  - `POST /audio/process` accepts the existing original-audio job payload and returns the existing audio callback payload synchronously.
-  - `POST /jobs` and `POST /audio/jobs` remain callback-compatible legacy endpoints.
+  - `python -m app.runner` runs the DB-polling Python worker loop.
+  - `python -m app.runner --once --stage scrape|audio|all` runs bounded debug passes.
+  - Python reads and writes only `WsjWorkerTask` rows.
 
 ### 3. Contracts
 
 - Next.js request handlers enqueue work only. They must not rely on `after()` to process scrape, material, or original-audio jobs.
-- The TS worker is the primary orchestration path: claim Prisma jobs, call Python when browser/audio work is required, then update Prisma through shared service functions.
-- Python `wsj-worker` must not write application database state; it only returns scrape/audio payloads or posts compatibility callbacks.
-- Required Docker worker env keys include `DATABASE_URL`, `WSJ_WORKER_URL`, `ORIGINAL_AUDIO_WORKER_URL`, `SCRAPER_WORKER_SECRET`, `MATERIAL_WORKER_SECRET`, and LLM envs needed by material generation.
-- Primary Docker URLs are `WSJ_WORKER_URL=http://wsj-worker:8000/scrape` and `ORIGINAL_AUDIO_WORKER_URL=http://wsj-worker:8000/audio/process`.
+- The TS worker is the primary orchestration path: claim domain jobs, create `WsjWorkerTask` rows for browser/audio work, then ingest completed task results through shared service functions.
+- Python `wsj-worker` must not write application domain tables such as `ScrapeJob`, `Article`, `Sentence`, `ArticleAudioJob`, or `MaterialJob`.
+- Required Docker worker env keys include `DATABASE_URL`, `BROWSER_CDP_URL`, `AUDIO_PUBLIC_DIR`, original-audio alignment/Whisper envs, `SCRAPER_WORKER_SECRET`, `MATERIAL_WORKER_SECRET`, and LLM envs needed by material generation.
+- Do not introduce `WSJ_WORKER_URL`, `ORIGINAL_AUDIO_WORKER_URL`, callback URLs, or Python FastAPI routes for the worker pipeline.
 
 ### 4. Validation & Error Matrix
 
 - Worker cannot claim a pending job atomically -> skip it; another worker may have claimed it.
-- Python `/scrape` rejects or times out -> retry `ScrapeJob` until `maxAttempts`, then mark failed.
+- Python `scrape` task fails -> TS worker retries `ScrapeJob` until `maxAttempts`, then marks failed.
 - Scrape succeeds with duplicate articles -> keep the scrape job succeeded; new article count may be zero.
 - Material job failure -> retry/fail material state only; do not block original-audio jobs.
-- Original-audio worker returns `unavailable` -> mark article audio unavailable without consuming retries indefinitely.
-- Original-audio worker returns `failed` or rejects -> retry/fail original-audio state per existing audio contract.
+- Original-audio task result status `unavailable` -> mark article audio unavailable without consuming retries indefinitely.
+- Original-audio task failure or result status `failed` -> retry/fail original-audio state per existing audio contract.
+- Completed `WsjWorkerTask` whose `domainAttempt` no longer matches the domain job -> mark consumed and ignore as stale.
 
 ### 5. Good/Base/Bad Cases
 
-- Good: `POST /api/scraper` returns quickly, `pnpm worker` claims the job, stores articles, and advances material/audio jobs.
+- Good: `POST /api/scraper` returns quickly, `pnpm worker` claims the job and creates a `scrape` task, `python -m app.runner` completes it, then a later TS worker pass stores articles and advances material/audio jobs.
 - Base: No new WSJ articles are found; scrape job succeeds with `createdCount = 0`.
 - Base: App restarts after enqueue; pending jobs remain in SQLite and are processed when the worker restarts.
 - Bad: Reintroducing `after()` means background work depends on a web request lifecycle and can disappear on deploy/restart.
-- Bad: Python writes Prisma state directly, creating a second implementation of queue transitions.
+- Bad: Python writes application domain tables directly, creating a second implementation of queue transitions.
+- Bad: Python exposes HTTP worker routes again, making worker coordination depend on a live service endpoint instead of the durable DB task channel.
 
 ### 6. Tests Required
 
-- Unit tests for worker URL normalization from `/jobs` or `/audio/jobs` to the synchronous endpoints.
+- Unit tests or smoke tests for `WsjWorkerTask` schema/claim/result/consume behavior.
+- Tests that scraper/original-audio queue code does not call `fetch()` or read worker URL env vars.
 - Type-check/lint must cover the TS worker CLI and shared queue services.
-- Python tests must cover `/audio/process` without invoking real Whisper or ffmpeg.
+- Python tests must cover DB queue claim/complete/fail/recovery and audio result builders without invoking real Whisper or ffmpeg.
 - Existing material and original-audio queue tests must pass after changing worker orchestration.
-- Docker/docs changes must keep app and worker env URLs consistent.
+- Docker/docs changes must keep app, TS worker, and Python worker sharing the same SQLite and audio volumes.
 
 ### 7. Wrong vs Correct
 
@@ -79,14 +85,14 @@ await enqueueArticleAudioJob(article.id);
 #### Wrong
 
 ```typescript
-await fetch("http://wsj-worker:8000/jobs", { method: "POST", body });
+await fetch("http://wsj-worker:8000/scrape", { method: "POST", body });
 ```
 
 #### Correct
 
 ```typescript
-await prisma.scrapeJob.create({ data: { status: "pending", maxArticles } });
-// Later: worker claims the job and calls Python /scrape.
+await db.insert(schema.scrapeJobs).values({ id, status: "pending", maxArticles });
+// Later: TS worker creates WsjWorkerTask; Python worker polls SQLite and writes resultJson.
 ```
 
 ## Scenario: Pipeline Admin Console

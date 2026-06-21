@@ -4,6 +4,12 @@ import { createId, db, schema, touch } from "@/lib/db";
 import { enqueueMaterialJob } from "@/lib/materials/queue";
 import { splitIntoSentences } from "@/lib/nlp/sentence-split";
 import { enqueueArticleAudioJob } from "@/lib/original-audio/queue";
+import {
+  enqueueWsjWorkerTask,
+  listCompletedWsjWorkerTasks,
+  markWsjWorkerTaskConsumed,
+  parseWsjWorkerTaskResult,
+} from "@/lib/wsj-worker/tasks";
 import type { ScrapeJob } from "@/db/schema";
 
 export type ScrapeJobStatus = "pending" | "running" | "succeeded" | "failed";
@@ -14,17 +20,6 @@ export interface ScrapedArticle {
   content: string;
   category?: string | null;
   publishedAt?: string | Date | null;
-}
-
-export interface WorkerJobResponse {
-  jobId?: string;
-  status?: string;
-  error?: string;
-}
-
-export interface WorkerScrapeResponse {
-  articles?: ScrapedArticle[];
-  error?: string;
 }
 
 export interface ScrapeJobApi {
@@ -47,7 +42,6 @@ export interface IngestScrapeJobInput {
 const DEFAULT_MAX_ARTICLES = 5;
 const MAX_ARTICLES_LIMIT = 10;
 const DEFAULT_MAX_ATTEMPTS = 3;
-const DEFAULT_WORKER_TIMEOUT_SECONDS = 600;
 const STALE_JOB_LOCK_MINUTES = 20;
 
 function truncateError(error: unknown): string {
@@ -70,24 +64,8 @@ function getMaxAttempts(): number {
   return Math.max(1, Math.trunc(envNumber("SCRAPER_MAX_ATTEMPTS", DEFAULT_MAX_ATTEMPTS)));
 }
 
-function getWorkerTimeoutMs(): number {
-  const seconds = Math.max(
-    30,
-    Math.trunc(envNumber("SCRAPER_WORKER_TIMEOUT_SECONDS", DEFAULT_WORKER_TIMEOUT_SECONDS))
-  );
-  return seconds * 1000;
-}
-
 function getBackoffMinutes(attempts: number): number {
   return Math.min(30, 2 ** Math.max(1, attempts - 1));
-}
-
-export function normalizeWorkerScrapeUrl(rawUrl: string | undefined): string {
-  const url = rawUrl || "http://wsj-worker:8000/scrape";
-  if (/\/scrape\/?$/.test(url)) {
-    return url;
-  }
-  return url.replace(/\/jobs\/?$/, "/scrape");
 }
 
 function parsePublishedAt(value: ScrapedArticle["publishedAt"]): Date {
@@ -103,6 +81,22 @@ function parsePublishedAt(value: ScrapedArticle["publishedAt"]): Date {
   }
 
   return new Date();
+}
+
+function isScrapedArticle(value: unknown): value is ScrapedArticle {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+
+  const article = value as Record<string, unknown>;
+  return (
+    typeof article.title === "string" &&
+    article.title.trim().length >= 10 &&
+    typeof article.url === "string" &&
+    article.url.trim().length > 0 &&
+    typeof article.content === "string" &&
+    article.content.trim().length >= 100
+  );
 }
 
 async function getScrapeJob(id: string): Promise<ScrapeJob | null> {
@@ -324,37 +318,6 @@ async function claimScrapeJobs(limit: number): Promise<ScrapeJob[]> {
   return claimed;
 }
 
-async function collectArticlesFromWorker(job: ScrapeJob): Promise<ScrapedArticle[]> {
-  const headers: Record<string, string> = {
-    "Content-Type": "application/json",
-  };
-  const secret = process.env.SCRAPER_WORKER_SECRET;
-  if (secret) {
-    headers.Authorization = `Bearer ${secret}`;
-  }
-
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), getWorkerTimeoutMs());
-  try {
-    const response = await fetch(normalizeWorkerScrapeUrl(process.env.WSJ_WORKER_URL), {
-      method: "POST",
-      headers,
-      body: JSON.stringify({ maxArticles: job.maxArticles }),
-      cache: "no-store",
-      signal: controller.signal,
-    });
-
-    const data = (await response.json().catch(() => ({}))) as WorkerScrapeResponse;
-    if (!response.ok) {
-      throw new Error(data.error || `WSJ worker rejected scrape with ${response.status}`);
-    }
-
-    return Array.isArray(data.articles) ? data.articles : [];
-  } finally {
-    clearTimeout(timeout);
-  }
-}
-
 async function markScrapeRetryOrFailed(job: ScrapeJob, error: unknown): Promise<void> {
   const lastError = truncateError(error);
   const hasMoreAttempts = job.attempts < job.maxAttempts;
@@ -412,29 +375,46 @@ async function markScrapeRetryOrFailed(job: ScrapeJob, error: unknown): Promise<
 
 export async function processScrapeJobs(limit = 1): Promise<{
   claimed: number;
+  dispatched: number;
   succeeded: number;
   failed: number;
   results: Array<{
     jobId: string;
-    status: "succeeded" | "failed";
+    status: "dispatched" | "succeeded" | "failed";
     createdCount?: number;
     audioQueuedCount?: number;
+    taskId?: string;
     error?: string;
   }>;
 }> {
-  const jobs = await claimScrapeJobs(limit);
   const results: Array<{
     jobId: string;
-    status: "succeeded" | "failed";
+    status: "dispatched" | "succeeded" | "failed";
     createdCount?: number;
     audioQueuedCount?: number;
+    taskId?: string;
     error?: string;
   }> = [];
 
-  for (const job of jobs) {
+  const completedTasks = await listCompletedWsjWorkerTasks("scrape", limit);
+  for (const task of completedTasks) {
+    const job = await getScrapeJob(task.domainJobId);
     try {
-      console.log(`Processing WSJ scrape job ${job.id} for up to ${job.maxArticles} articles`);
-      const articles = await collectArticlesFromWorker(job);
+      if (!job || job.attempts !== task.domainAttempt || job.status !== "running") {
+        await markWsjWorkerTaskConsumed(task.id);
+        continue;
+      }
+
+      if (task.status === "failed") {
+        const error = task.lastError || "WSJ Python worker failed";
+        await markScrapeRetryOrFailed(job, error);
+        results.push({ jobId: job.id, status: "failed", taskId: task.id, error });
+        await markWsjWorkerTaskConsumed(task.id);
+        continue;
+      }
+
+      const data = parseWsjWorkerTaskResult(task, "scrape");
+      const articles = Array.isArray(data.articles) ? data.articles.filter(isScrapedArticle) : [];
       const result = await ingestScrapeJobUpdate({
         jobId: job.id,
         status: "succeeded",
@@ -443,6 +423,7 @@ export async function processScrapeJobs(limit = 1): Promise<{
       results.push({
         jobId: job.id,
         status: "succeeded",
+        taskId: task.id,
         createdCount: result.createdCount,
         audioQueuedCount: result.audioQueuedCount,
       });
@@ -454,10 +435,42 @@ export async function processScrapeJobs(limit = 1): Promise<{
         status: "succeeded",
         message: "Scrape job completed",
         metadata: {
+          taskId: task.id,
           articles: articles.length,
           createdCount: result.createdCount,
           audioQueuedCount: result.audioQueuedCount,
         },
+      });
+      await markWsjWorkerTaskConsumed(task.id);
+    } catch (error) {
+      if (job) {
+        await markScrapeRetryOrFailed(job, error);
+        results.push({ jobId: job.id, status: "failed", taskId: task.id, error: truncateError(error) });
+      }
+      await markWsjWorkerTaskConsumed(task.id);
+    }
+  }
+
+  const remainingLimit = Math.max(0, limit - completedTasks.length);
+  const jobs = remainingLimit > 0 ? await claimScrapeJobs(remainingLimit) : [];
+  for (const job of jobs) {
+    try {
+      console.log(`Dispatching WSJ scrape job ${job.id} for up to ${job.maxArticles} articles`);
+      const task = await enqueueWsjWorkerTask({
+        kind: "scrape",
+        domainJobId: job.id,
+        domainAttempt: job.attempts,
+        payload: { maxArticles: job.maxArticles },
+      });
+      results.push({ jobId: job.id, status: "dispatched", taskId: task.id });
+      await recordScrapeEvent({
+        scope: "scrape",
+        entityType: "scrapeJob",
+        entityId: job.id,
+        jobId: job.id,
+        status: "queued",
+        message: "Scrape worker task queued",
+        metadata: { taskId: task.id, attempts: job.attempts },
       });
     } catch (error) {
       const message = truncateError(error);
@@ -467,7 +480,8 @@ export async function processScrapeJobs(limit = 1): Promise<{
   }
 
   return {
-    claimed: jobs.length,
+    claimed: completedTasks.length + jobs.length,
+    dispatched: results.filter((result) => result.status === "dispatched").length,
     succeeded: results.filter((result) => result.status === "succeeded").length,
     failed: results.filter((result) => result.status === "failed").length,
     results,

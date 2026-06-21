@@ -17,11 +17,14 @@ services:
     build:
       context: ./worker/wsj-worker
     depends_on:
+      app:
+        condition: service_healthy
       chrome:
         condition: service_healthy
+    command: ["uv", "run", "--no-sync", "python", "-m", "app.runner"]
     environment:
+      - DATABASE_URL=file:/app/data/shadow-reading.db
       - BROWSER_CDP_URL=${BROWSER_CDP_URL:-http://chrome:9222}
-      - SCRAPER_WORKER_SECRET=${SCRAPER_WORKER_SECRET:-}
       - AUDIO_PUBLIC_DIR=/app/public/audio
       - ORIGINAL_AUDIO_WHISPER_MODEL=${ORIGINAL_AUDIO_WHISPER_MODEL:-base.en}
       - ORIGINAL_AUDIO_WHISPER_DEVICE=${ORIGINAL_AUDIO_WHISPER_DEVICE:-cpu}
@@ -29,20 +32,15 @@ services:
       - ORIGINAL_AUDIO_ALIGNMENT_MIN_SCORE=${ORIGINAL_AUDIO_ALIGNMENT_MIN_SCORE:-0.62}
       - ORIGINAL_AUDIO_ALIGNMENT_SEARCH_WORDS=${ORIGINAL_AUDIO_ALIGNMENT_SEARCH_WORDS:-240}
       - ORIGINAL_AUDIO_ALIGNMENT_INITIAL_SEARCH_WORDS=${ORIGINAL_AUDIO_ALIGNMENT_INITIAL_SEARCH_WORDS:-480}
+      - WSJ_WORKER_LOG_LEVEL=${WSJ_WORKER_LOG_LEVEL:-INFO}
+      - PYTHONUNBUFFERED=1
     volumes:
+      - ./data:/app/data
       - ./public/audio:/app/public/audio
-    healthcheck:
-      test: ["CMD-SHELL", "curl -fsS http://localhost:8000/health >/dev/null"]
-      interval: 10s
-      timeout: 5s
-      retries: 12
     restart: unless-stopped
 
   app:
     build: .
-    depends_on:
-      wsj-worker:
-        condition: service_healthy
     ports:
       - "3000:3000"
     environment:
@@ -50,15 +48,11 @@ services:
       - WSJ_EMAIL=${WSJ_EMAIL}
       - WSJ_PASSWORD=${WSJ_PASSWORD}
       - WSJ_STORAGE_PATH=/app/data/.wsj-auth.json
-      - WSJ_WORKER_URL=http://wsj-worker:8000/scrape
-      - ORIGINAL_AUDIO_WORKER_URL=http://wsj-worker:8000/audio/process
       - ORIGINAL_AUDIO_MIN_COVERAGE=${ORIGINAL_AUDIO_MIN_COVERAGE:-0.9}
       - ORIGINAL_AUDIO_MAX_ATTEMPTS=${ORIGINAL_AUDIO_MAX_ATTEMPTS:-3}
       - ORIGINAL_AUDIO_TIMEOUT_SECONDS=${ORIGINAL_AUDIO_TIMEOUT_SECONDS:-300}
-      - SCRAPER_CALLBACK_BASE_URL=http://app:3000
       - SCRAPER_WORKER_SECRET=${SCRAPER_WORKER_SECRET:-}
       - SCRAPER_MAX_ATTEMPTS=${SCRAPER_MAX_ATTEMPTS:-3}
-      - SCRAPER_WORKER_TIMEOUT_SECONDS=${SCRAPER_WORKER_TIMEOUT_SECONDS:-600}
       - MATERIAL_WORKER_SECRET=${MATERIAL_WORKER_SECRET:-}
       - TTS_PROVIDER=${TTS_PROVIDER:-edge}
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
@@ -88,20 +82,14 @@ services:
     depends_on:
       app:
         condition: service_healthy
-      wsj-worker:
-        condition: service_healthy
     command: ["pnpm", "worker"]
     environment:
       - DATABASE_URL=file:/app/data/shadow-reading.db
-      - WSJ_WORKER_URL=http://wsj-worker:8000/scrape
-      - ORIGINAL_AUDIO_WORKER_URL=http://wsj-worker:8000/audio/process
       - ORIGINAL_AUDIO_MIN_COVERAGE=${ORIGINAL_AUDIO_MIN_COVERAGE:-0.9}
       - ORIGINAL_AUDIO_MAX_ATTEMPTS=${ORIGINAL_AUDIO_MAX_ATTEMPTS:-3}
       - ORIGINAL_AUDIO_TIMEOUT_SECONDS=${ORIGINAL_AUDIO_TIMEOUT_SECONDS:-300}
-      - SCRAPER_CALLBACK_BASE_URL=http://app:3000
       - SCRAPER_WORKER_SECRET=${SCRAPER_WORKER_SECRET:-}
       - SCRAPER_MAX_ATTEMPTS=${SCRAPER_MAX_ATTEMPTS:-3}
-      - SCRAPER_WORKER_TIMEOUT_SECONDS=${SCRAPER_WORKER_TIMEOUT_SECONDS:-600}
       - MATERIAL_WORKER_SECRET=${MATERIAL_WORKER_SECRET:-}
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
       - OPENAI_BASE_URL=${OPENAI_BASE_URL:-}

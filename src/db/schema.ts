@@ -105,6 +105,38 @@ export const scrapeJobs = sqliteTable(
   })
 );
 
+export const wsjWorkerTasks = sqliteTable(
+  "WsjWorkerTask",
+  {
+    id: text("id").primaryKey(),
+    kind: text("kind").notNull(),
+    domainJobId: text("domainJobId").notNull(),
+    domainAttempt: integer("domainAttempt").notNull(),
+    status: text("status").notNull().default("pending"),
+    payloadJson: text("payloadJson").notNull(),
+    resultJson: text("resultJson"),
+    lockedAt: timestamp("lockedAt"),
+    lastError: text("lastError"),
+    startedAt: timestamp("startedAt"),
+    finishedAt: timestamp("finishedAt"),
+    consumedAt: timestamp("consumedAt"),
+    createdAt: timestamp("createdAt").notNull().$defaultFn(() => new Date()),
+    updatedAt: timestamp("updatedAt").notNull().$defaultFn(() => new Date()),
+  },
+  (table) => ({
+    kindStatusCreatedAtIdx: index("WsjWorkerTask_kind_status_createdAt_idx").on(
+      table.kind,
+      table.status,
+      table.createdAt
+    ),
+    domainAttemptKey: uniqueIndex("WsjWorkerTask_kind_domainJobId_domainAttempt_key").on(
+      table.kind,
+      table.domainJobId,
+      table.domainAttempt
+    ),
+  })
+);
+
 export const trainingPackages = sqliteTable(
   "TrainingPackage",
   {
@@ -288,6 +320,7 @@ export type Sentence = typeof sentences.$inferSelect;
 export type Vocabulary = typeof vocabulary.$inferSelect;
 export type ReadingHistory = typeof readingHistory.$inferSelect;
 export type ScrapeJob = typeof scrapeJobs.$inferSelect;
+export type WsjWorkerTask = typeof wsjWorkerTasks.$inferSelect;
 export type TrainingPackage = typeof trainingPackages.$inferSelect;
 export type MaterialJob = typeof materialJobs.$inferSelect;
 export type ArticleAudio = typeof articleAudio.$inferSelect;

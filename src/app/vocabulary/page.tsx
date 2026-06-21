@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import { desc } from "drizzle-orm";
 import { db, schema } from "@/lib/db";
 import { VocabularyMasteryButton } from "@/components/VocabularyActions";
@@ -12,6 +13,11 @@ import {
 } from "@/components/ui/empty";
 import { Separator } from "@/components/ui/separator";
 import { BookOpen, Check } from "lucide-react";
+
+export const metadata: Metadata = {
+  title: "Vocabulary",
+  description: "Review saved EchoRead vocabulary from article reading sessions.",
+};
 
 export default async function VocabularyPage() {
   const words = await db.query.vocabulary.findMany({

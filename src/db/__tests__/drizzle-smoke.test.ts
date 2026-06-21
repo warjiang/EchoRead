@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -17,8 +17,12 @@ async function createTempDb() {
   const filename = path.join(dir, "test.db");
   const sqlite = new Database(filename);
   sqlite.pragma("foreign_keys = ON");
-  const migration = await readFile(path.join(process.cwd(), "drizzle", "0000_lowly_whirlwind.sql"), "utf8");
-  sqlite.exec(migration.replaceAll("--> statement-breakpoint", ""));
+  const migrationDir = path.join(process.cwd(), "drizzle");
+  const migrationFiles = (await readdir(migrationDir)).filter((file) => file.endsWith(".sql")).sort();
+  for (const file of migrationFiles) {
+    const migration = await readFile(path.join(migrationDir, file), "utf8");
+    sqlite.exec(migration.replaceAll("--> statement-breakpoint", ""));
+  }
   return {
     db: drizzle(sqlite, { schema }),
     sqlite,
@@ -89,6 +93,29 @@ test("drizzle sqlite schema supports core pipeline contracts", async () => {
       .where(eq(schema.scrapeJobs.id, scrapeJobId));
     const retriedScrape = await db.query.scrapeJobs.findFirst({ where: eq(schema.scrapeJobs.id, scrapeJobId) });
     assert.equal(retriedScrape?.status, "pending");
+
+    const taskId = id("wsjtask");
+    await db.insert(schema.wsjWorkerTasks).values({
+      id: taskId,
+      kind: "scrape",
+      domainJobId: scrapeJobId,
+      domainAttempt: 1,
+      status: "pending",
+      payloadJson: "{\"maxArticles\":5}",
+      createdAt: now,
+      updatedAt: now,
+    });
+    const [claimedTask] = await db
+      .update(schema.wsjWorkerTasks)
+      .set({
+        status: "running",
+        lockedAt: later,
+        startedAt: later,
+        updatedAt: later,
+      })
+      .where(and(eq(schema.wsjWorkerTasks.id, taskId), eq(schema.wsjWorkerTasks.status, "pending")))
+      .returning();
+    assert.equal(claimedTask.status, "running");
 
     const trainingId = id("training");
     await db

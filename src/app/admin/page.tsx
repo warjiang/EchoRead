@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import {
@@ -30,6 +31,14 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
+
+export const metadata: Metadata = {
+  title: "Pipeline Admin",
+  robots: {
+    index: false,
+    follow: false,
+  },
+};
 
 function fmtDate(value: Date | string | null | undefined) {
   if (!value) return "n/a";
