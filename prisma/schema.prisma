@@ -21,6 +21,8 @@ model Article {
   readings    ReadingHistory[]
   trainingPackage TrainingPackage?
   materialJobs MaterialJob[]
+  originalAudio ArticleAudio?
+  originalAudioJob ArticleAudioJob?
 }
 
 model ScrapeJob {
@@ -38,12 +40,16 @@ model ScrapeJob {
 }
 
 model Sentence {
-  id        String  @id @default(cuid())
-  articleId String
-  index     Int
-  text      String
-  audioUrl  String?
-  article   Article @relation(fields: [articleId], references: [id], onDelete: Cascade)
+  id              String  @id @default(cuid())
+  articleId       String
+  index           Int
+  text            String
+  audioUrl        String?
+  wsjAudioUrl     String?
+  wsjAudioStartMs Int?
+  wsjAudioEndMs   Int?
+  wsjAudioStatus  String  @default("pending")
+  article         Article @relation(fields: [articleId], references: [id], onDelete: Cascade)
 
   @@index([articleId])
 }
@@ -102,4 +108,41 @@ model MaterialJob {
 
   @@index([status, runAfter])
   @@unique([articleId, jobType])
+}
+
+model ArticleAudio {
+  id             String   @id @default(cuid())
+  articleId      String   @unique
+  status         String   @default("pending")
+  sourceUrl      String?
+  sourceAudioUrl String?
+  sourcePath     String?
+  durationMs     Int?
+  coverageRatio  Float?
+  sentenceCount  Int      @default(0)
+  clippedCount   Int      @default(0)
+  lastError      String?
+  startedAt      DateTime?
+  finishedAt     DateTime?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  article        Article  @relation(fields: [articleId], references: [id], onDelete: Cascade)
+}
+
+model ArticleAudioJob {
+  id             String   @id @default(cuid())
+  articleId      String   @unique
+  status         String   @default("pending")
+  attempts       Int      @default(0)
+  maxAttempts    Int      @default(3)
+  timeoutSeconds Int      @default(300)
+  runAfter       DateTime @default(now())
+  lockedAt       DateTime?
+  workerJobId    String?
+  lastError      String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  article        Article  @relation(fields: [articleId], references: [id], onDelete: Cascade)
+
+  @@index([status, runAfter])
 }

@@ -5,7 +5,7 @@ English learning website powered by WSJ news articles with shadow reading practi
 ## Features
 
 - 📰 **Daily WSJ Articles** - Auto-scrape latest articles with Playwright
-- 🎧 **Shadow Reading** - TTS sentence playback with speed control
+- 🎧 **Shadow Reading** - WSJ original narration clipped into sentence-level practice audio
 - 🎤 **Recording & Comparison** - Record yourself and compare with original
 - 📖 **Vocabulary Book** - Click words to look up and save
 - 📊 **Progress Tracking** - Learning history and statistics
@@ -23,10 +23,7 @@ cp .env.example .env
 # 3. Initialize database
 pnpm exec prisma migrate dev
 
-# 4. Install edge-tts CLI (for TTS)
-pip install edge-tts
-
-# 5. Run development server
+# 4. Run development server
 pnpm dev
 ```
 
@@ -36,19 +33,19 @@ Open [http://localhost:3000](http://localhost:3000)
 
 1. Click "Fetch New Articles" to scrape WSJ articles
 2. Click an article to read it
-3. Click "Start Shadow Reading" for TTS playback practice
+3. Click "Start Shadow Reading" when WSJ original audio clips are ready
 4. Record yourself reading along and compare
 5. Open article detail page to view the generated **Training Pack** section
 
-## Browser-Use WSJ Collection
+## Deterministic WSJ Collection
 
-WSJ collection runs through a self-hosted browser-use worker. The Next.js app no longer drives Playwright directly for scraping.
+WSJ collection runs through a self-hosted worker that uses Playwright over CDP plus deterministic DOM / JSON-LD extraction. LLMs are not used for scraping; they are only used later for shadow-reading material generation.
 
 - `chrome`: optional self-hosted Chromium with CDP on Docker-internal port `9222`
-- `wsj-worker`: Python `browser-use[core]` service connected to `BROWSER_CDP_URL`, managed with `uv`
-- `app`: Next.js service that creates scrape jobs, receives worker callbacks, stores articles, and queues material generation
+- `wsj-worker`: Python Playwright service connected to `BROWSER_CDP_URL`, managed with `uv`
+- `app`: Next.js service that creates scrape jobs, receives worker callbacks, stores articles, and queues material and original-audio generation
 
-The Chrome profile is persisted at `./data/chrome-profile` when you use the bundled `chrome` service. Complete WSJ login once through the browser profile you expose to CDP, then subsequent collection jobs reuse that authenticated profile. This avoids Browser Use Cloud and keeps WSJ auth local to your deployment.
+The Chrome profile is persisted at `./data/chrome-profile` when you use the bundled `chrome` service. Complete WSJ login once through the browser profile you expose to CDP, then subsequent collection jobs reuse that authenticated profile. This keeps WSJ auth local to your deployment.
 
 Important envs:
 
@@ -57,12 +54,16 @@ OPENAI_API_KEY=...
 OPENAI_BASE_URL=https://api.openai.com/v1
 SCRAPER_WORKER_SECRET=choose-a-secret
 MATERIAL_WORKER_SECRET=choose-another-secret
-BROWSER_AGENT_MODEL=gpt-4.1-mini
-BROWSER_AGENT_BASE_URL=$OPENAI_BASE_URL
-BROWSER_AGENT_API_KEY=$OPENAI_API_KEY
-BROWSER_AGENT_RESPONSE_FORMAT=prompt_json
 BROWSER_CDP_URL=http://chrome:9222
 WSJ_WORKER_URL=http://wsj-worker:8000/jobs
+ORIGINAL_AUDIO_WORKER_URL=http://wsj-worker:8000/audio/jobs
+ORIGINAL_AUDIO_MIN_COVERAGE=0.9
+ORIGINAL_AUDIO_MAX_ATTEMPTS=3
+ORIGINAL_AUDIO_TIMEOUT_SECONDS=300
+ORIGINAL_AUDIO_ALIGNMENT_MIN_SCORE=0.62
+ORIGINAL_AUDIO_ALIGNMENT_SEARCH_WORDS=240
+ORIGINAL_AUDIO_ALIGNMENT_INITIAL_SEARCH_WORDS=480
+AUDIO_PUBLIC_DIR=./public/audio
 SCRAPER_CALLBACK_BASE_URL=http://app:3000
 ```
 
@@ -84,8 +85,6 @@ For an OpenAI-compatible provider, set the base URL to the prefix before `/chat/
 ```bash
 OPENAI_API_KEY=$API_KEY
 OPENAI_BASE_URL=https://ark.cn-beijing.volces.com/api/plan/v3
-BROWSER_AGENT_MODEL=deepseek-v4-flash
-BROWSER_AGENT_RESPONSE_FORMAT=prompt_json
 LLM_PROVIDER=openai-compatible
 LLM_MODEL_HIGH_QUALITY=deepseek-v4-pro
 LLM_BASE_URL=$OPENAI_BASE_URL
@@ -93,7 +92,7 @@ LLM_API_KEY=$OPENAI_API_KEY
 LLM_RESPONSE_FORMAT=none
 ```
 
-Use `BROWSER_AGENT_RESPONSE_FORMAT=prompt_json` for providers that do not support OpenAI `response_format.type=json_schema`. Set it to `json_schema` only for models/endpoints that support OpenAI structured outputs. Use `LLM_RESPONSE_FORMAT=json_object` only when the compatible provider supports OpenAI JSON mode. Otherwise keep `none`; EchoRead still extracts and validates the JSON object from the model text.
+Use `LLM_RESPONSE_FORMAT=json_object` only when the compatible provider supports OpenAI JSON mode. Otherwise keep `none`; EchoRead still extracts and validates the JSON object from the model text. `BROWSER_AGENT_*` settings are no longer used by scraping.
 
 Manual worker checks:
 
@@ -113,7 +112,7 @@ curl -fsS \
   -H "Authorization: Bearer $SCRAPER_WORKER_SECRET" \
   http://localhost:3000/api/scraper/jobs/<jobId>
 
-# Legacy synchronous worker check, useful only for debugging browser-use output.
+# Synchronous worker check, useful for debugging deterministic extraction.
 curl -fsS -X POST \
   -H "Authorization: Bearer $SCRAPER_WORKER_SECRET" \
   -H "Content-Type: application/json" \
@@ -124,6 +123,56 @@ curl -fsS -X POST \
 The app no longer waits for WSJ collection to finish. `POST /api/scraper` creates a `ScrapeJob`, asks `wsj-worker` to run in the background, and returns `202` immediately. The worker posts `running`, `succeeded`, or `failed` updates back to `POST /api/scraper/ingest` with the same `SCRAPER_WORKER_SECRET`.
 
 When running outside Docker, make sure `SCRAPER_CALLBACK_BASE_URL` points to an address the worker can reach. For local app + local worker, `http://localhost:3000` is fine. In Docker Compose, use `http://app:3000`.
+
+## WSJ Original Audio Pipeline
+
+New articles automatically queue original-audio processing after scrape ingestion. The `wsj-worker` uses the authenticated WSJ browser context to find accessible article narration, downloads the full source file, aligns it to stored article sentences, and writes sentence clips for shadow reading.
+
+Storage paths:
+
+```bash
+public/audio/wsj-source/<articleId>.<ext>
+public/audio/wsj-clips/<articleId>/<sentenceId>.mp3
+```
+
+For manual local worker runs, use `AUDIO_PUBLIC_DIR=./public/audio` or leave it unset. Docker Compose overrides it to `/app/public/audio` so the app and worker share the mounted volume.
+
+Manual local worker runs also need `ffmpeg` and `ffprobe` on PATH for sentence clipping:
+
+```bash
+brew install ffmpeg
+```
+
+If they are installed somewhere custom, set:
+
+```bash
+FFMPEG_BINARY=/path/to/ffmpeg
+FFPROBE_BINARY=/path/to/ffprobe
+```
+
+Readiness is based on sentence clip coverage. By default, at least 90% of stored sentences must have clips before the article's shadow-reading entry is enabled. Articles without accessible WSJ narration remain readable, but their shadow-reading controls show unavailable, processing, or failed state instead of falling back to TTS.
+
+Alignment is text-similarity based instead of token-count based, so the worker can skip WSJ audio intros, titles, or small narration edits before cutting clips. `ORIGINAL_AUDIO_ALIGNMENT_MIN_SCORE` controls how strict each sentence match is. `ORIGINAL_AUDIO_ALIGNMENT_SEARCH_WORDS` controls how far the worker scans ahead from the previous matched sentence, while `ORIGINAL_AUDIO_ALIGNMENT_INITIAL_SEARCH_WORDS` gives the first sentence a larger window for title/intro audio.
+
+Manual retry is available from the article page when original-audio processing fails, and through:
+
+```bash
+curl -fsS -X POST \
+  -H "Authorization: Bearer $SCRAPER_WORKER_SECRET" \
+  -H "Content-Type: application/json" \
+  -d '{"timeoutSeconds": 600}' \
+  http://localhost:3000/api/articles/<articleId>/original-audio/retry
+```
+
+Pending original-audio jobs can be kicked manually, which is useful when the app or worker was restarted after scrape ingestion:
+
+```bash
+curl -fsS -X POST \
+  -H "Authorization: Bearer $SCRAPER_WORKER_SECRET" \
+  http://localhost:3000/api/original-audio/worker?limit=3
+```
+
+The full source audio is retained for local processing and possible re-clipping. EchoRead does not add a user-facing download action for the full source file. Use this only with audio available to your authenticated WSJ session and your own local learning deployment; the worker must not bypass WSJ access controls.
 
 Worker dependency changes should be made in `worker/wsj-worker/pyproject.toml`, then locked with:
 
@@ -174,7 +223,7 @@ docker compose logs -f bootstrap-scrape
 
 Compose now starts:
 - `chrome`: dedicated CDP Chromium with persisted profile
-- `wsj-worker`: browser-use worker for WSJ collection
+- `wsj-worker`: deterministic Playwright worker for WSJ collection
 - `app`: Next.js service (runs `prisma migrate deploy` on startup)
 - `bootstrap-scrape`: one-shot job that creates an async scrape job after app is healthy
 

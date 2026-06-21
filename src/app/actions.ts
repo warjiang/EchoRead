@@ -69,3 +69,28 @@ export async function generateArticleAudio(articleId: string) {
 
   revalidatePath(`/articles/${articleId}/shadow`);
 }
+
+export async function retryOriginalArticleAudio(articleId: string, formData: FormData) {
+  const timeoutSeconds = Number(formData.get("timeoutSeconds") || 300);
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+  };
+  const secret = process.env.SCRAPER_WORKER_SECRET;
+  if (secret) {
+    headers.Authorization = `Bearer ${secret}`;
+  }
+
+  const response = await fetch(`${appBaseUrl()}/api/articles/${articleId}/original-audio/retry`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({ timeoutSeconds }),
+    cache: "no-store",
+  });
+
+  if (!response.ok) {
+    throw new Error("Failed to retry original audio processing");
+  }
+
+  revalidatePath(`/articles/${articleId}`);
+  revalidatePath(`/articles/${articleId}/shadow`);
+}

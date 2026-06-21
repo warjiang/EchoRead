@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/db";
 import { enqueueMaterialJob } from "@/lib/materials/queue";
 import { splitIntoSentences } from "@/lib/nlp/sentence-split";
+import { enqueueArticleAudioJob } from "@/lib/original-audio/queue";
 import type { Prisma, ScrapeJob } from "@prisma/client";
 
 export type ScrapeJobStatus = "pending" | "running" | "succeeded" | "failed";
@@ -74,14 +75,42 @@ function parsePublishedAt(value: ScrapedArticle["publishedAt"]): Date {
   return new Date();
 }
 
-async function createArticleIfNew(article: ScrapedArticle): Promise<boolean> {
+async function enqueueOriginalAudioIfMissing(articleId: string): Promise<boolean> {
+  const existing = await prisma.article.findUnique({
+    where: { id: articleId },
+    select: {
+      originalAudio: { select: { status: true } },
+      originalAudioJob: { select: { id: true } },
+    },
+  });
+
+  if (!existing || existing.originalAudioJob || existing.originalAudio?.status === "ready") {
+    return false;
+  }
+
+  try {
+    await enqueueArticleAudioJob(articleId);
+    return true;
+  } catch (error) {
+    console.error("Failed to enqueue original-audio job:", error);
+    return false;
+  }
+}
+
+async function createArticleIfNew(article: ScrapedArticle): Promise<{
+  created: boolean;
+  audioQueued: boolean;
+}> {
   const existing = await prisma.article.findUnique({
     where: { url: article.url },
     select: { id: true },
   });
 
   if (existing) {
-    return false;
+    return {
+      created: false,
+      audioQueued: await enqueueOriginalAudioIfMissing(existing.id),
+    };
   }
 
   const sentences = splitIntoSentences(article.content);
@@ -104,11 +133,23 @@ async function createArticleIfNew(article: ScrapedArticle): Promise<boolean> {
     });
 
     await enqueueMaterialJob(dbArticle.id);
-    return true;
+    return {
+      created: true,
+      audioQueued: await enqueueOriginalAudioIfMissing(dbArticle.id),
+    };
   } catch (error) {
     const prismaError = error as Prisma.PrismaClientKnownRequestError;
     if (prismaError?.code === "P2002") {
-      return false;
+      const existingAfterRace = await prisma.article.findUnique({
+        where: { url: article.url },
+        select: { id: true },
+      });
+      return {
+        created: false,
+        audioQueued: existingAfterRace
+          ? await enqueueOriginalAudioIfMissing(existingAfterRace.id)
+          : false,
+      };
     }
     throw error;
   }
@@ -159,6 +200,7 @@ export async function createAndStartScrapeJob(maxArticles: number): Promise<{
   const timeout = setTimeout(() => controller.abort(), WORKER_ACCEPT_TIMEOUT_MS);
 
   try {
+    console.log(`Creating WSJ scrape job ${job.id} for up to ${maxArticles} articles`);
     const response = await fetch(normalizeWorkerJobsUrl(process.env.WSJ_WORKER_URL), {
       method: "POST",
       headers,
@@ -177,9 +219,11 @@ export async function createAndStartScrapeJob(maxArticles: number): Promise<{
       throw new Error(data.error || `WSJ worker rejected job with ${response.status}`);
     }
 
+    console.log(`WSJ scrape job ${job.id} accepted by worker`);
     return { job, accepted: true };
   } catch (error) {
     const errorMessage = truncateError(error);
+    console.error(`Failed to start WSJ scrape job ${job.id}:`, errorMessage);
     const failedJob = await prisma.scrapeJob.update({
       where: { id: job.id },
       data: {
@@ -198,10 +242,15 @@ export async function createAndStartScrapeJob(maxArticles: number): Promise<{
 export async function ingestScrapeJobUpdate(input: IngestScrapeJobInput): Promise<{
   job: ScrapeJob | null;
   createdCount: number;
+  audioQueuedCount: number;
 }> {
+  console.log(
+    `Received WSJ scrape callback job=${input.jobId} status=${input.status} articles=${input.articles?.length || 0}`
+  );
+
   const existingJob = await prisma.scrapeJob.findUnique({ where: { id: input.jobId } });
   if (!existingJob) {
-    return { job: null, createdCount: 0 };
+    return { job: null, createdCount: 0, audioQueuedCount: 0 };
   }
 
   if (input.status === "running") {
@@ -220,6 +269,7 @@ export async function ingestScrapeJobUpdate(input: IngestScrapeJobInput): Promis
     return {
       job: await prisma.scrapeJob.findUnique({ where: { id: input.jobId } }),
       createdCount: 0,
+      audioQueuedCount: 0,
     };
   }
 
@@ -237,13 +287,19 @@ export async function ingestScrapeJobUpdate(input: IngestScrapeJobInput): Promis
     return {
       job: await prisma.scrapeJob.findUnique({ where: { id: input.jobId } }),
       createdCount: 0,
+      audioQueuedCount: 0,
     };
   }
 
   let createdCount = 0;
+  let audioQueuedCount = 0;
   for (const article of input.articles || []) {
-    if (await createArticleIfNew(article)) {
+    const result = await createArticleIfNew(article);
+    if (result.created) {
       createdCount += 1;
+    }
+    if (result.audioQueued) {
+      audioQueuedCount += 1;
     }
   }
 
@@ -261,5 +317,6 @@ export async function ingestScrapeJobUpdate(input: IngestScrapeJobInput): Promis
   return {
     job: await prisma.scrapeJob.findUnique({ where: { id: input.jobId } }),
     createdCount,
+    audioQueuedCount,
   };
 }

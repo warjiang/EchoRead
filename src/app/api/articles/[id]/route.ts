@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
+import { serializeArticleAudio } from "@/lib/original-audio/queue";
 
 export async function GET(
   request: NextRequest,
@@ -11,6 +12,8 @@ export async function GET(
     where: { id },
     include: {
       sentences: { orderBy: { index: "asc" } },
+      originalAudio: true,
+      originalAudioJob: true,
     },
   });
 
@@ -18,5 +21,8 @@ export async function GET(
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
 
-  return NextResponse.json(article);
+  return NextResponse.json({
+    ...article,
+    originalAudio: serializeArticleAudio(article.originalAudio, article.originalAudioJob),
+  });
 }

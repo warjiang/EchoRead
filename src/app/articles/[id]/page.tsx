@@ -1,11 +1,15 @@
 import { prisma } from "@/lib/db";
 import { notFound } from "next/navigation";
 import Link from "next/link";
-import { ArrowLeft, ExternalLink, Headphones } from "lucide-react";
+import { ArrowLeft, ExternalLink, Headphones, RotateCcw } from "lucide-react";
+import { retryOriginalArticleAudio } from "@/app/actions";
 import { TrainingPackPanel } from "@/components/TrainingPackPanel";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { buttonVariants } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
+import { serializeArticleAudio } from "@/lib/original-audio/queue";
 import { cn } from "@/lib/utils";
 
 interface Props {
@@ -19,12 +23,25 @@ export default async function ArticleDetailPage({ params }: Props) {
     where: { id },
     include: {
       sentences: { orderBy: { index: "asc" } },
+      originalAudio: true,
+      originalAudioJob: true,
     },
   });
 
   if (!article) notFound();
 
   const paragraphs = article.content.split("\n\n").filter(Boolean);
+  const originalAudio = serializeArticleAudio(article.originalAudio, article.originalAudioJob);
+  const isShadowReady = originalAudio.status === "ready";
+  const retryAction = retryOriginalArticleAudio.bind(null, id);
+
+  const audioStatusLabel: Record<string, string> = {
+    pending: "Original audio pending",
+    processing: "Original audio processing",
+    ready: "Original audio ready",
+    unavailable: "Original audio unavailable",
+    failed: "Original audio failed",
+  };
 
   return (
     <div className="container-page py-8 sm:py-10">
@@ -52,13 +69,65 @@ export default async function ArticleDetailPage({ params }: Props) {
               {article.title}
             </h1>
 
-            <Link
-              href={`/articles/${id}/shadow`}
-              className={cn(buttonVariants({ size: "lg" }), "mt-6")}
-            >
-              <Headphones data-icon="inline-start" aria-hidden="true" />
-              Start Shadow Reading
-            </Link>
+            <div className="mt-6 flex flex-col gap-3">
+              <div className="flex flex-wrap items-center gap-3">
+                {isShadowReady ? (
+                  <Link
+                    href={`/articles/${id}/shadow`}
+                    className={cn(buttonVariants({ size: "lg" }))}
+                  >
+                    <Headphones data-icon="inline-start" aria-hidden="true" />
+                    Start Shadow Reading
+                  </Link>
+                ) : (
+                  <Button type="button" size="lg" disabled>
+                    <Headphones data-icon="inline-start" aria-hidden="true" />
+                    Start Shadow Reading
+                  </Button>
+                )}
+                <Badge variant={isShadowReady ? "secondary" : "outline"}>
+                  {audioStatusLabel[originalAudio.status] || "Original audio pending"}
+                </Badge>
+              </div>
+
+              <Alert variant={originalAudio.status === "failed" ? "destructive" : "default"}>
+                <AlertTitle>
+                  {audioStatusLabel[originalAudio.status] || "Original audio pending"}
+                </AlertTitle>
+                <AlertDescription>
+                  {originalAudio.status === "ready" &&
+                    `${originalAudio.clippedCount}/${originalAudio.sentenceCount} sentences have WSJ clips.`}
+                  {originalAudio.status === "processing" &&
+                    "The worker is downloading and cutting WSJ narration in the background."}
+                  {originalAudio.status === "pending" &&
+                    "Original audio processing will start in the background."}
+                  {originalAudio.status === "unavailable" &&
+                    (originalAudio.lastError || "This article does not expose accessible WSJ narration.")}
+                  {originalAudio.status === "failed" &&
+                    (originalAudio.lastError || "Original audio processing failed.")}
+                </AlertDescription>
+              </Alert>
+
+              {originalAudio.status === "failed" && (
+                <form action={retryAction} className="flex flex-wrap items-end gap-2">
+                  <label className="flex flex-col gap-1 text-xs font-medium text-muted-foreground">
+                    Retry timeout
+                    <input
+                      name="timeoutSeconds"
+                      type="number"
+                      min={30}
+                      max={3600}
+                      defaultValue={originalAudio.job?.timeoutSeconds || 300}
+                      className="h-8 w-32 rounded-md border bg-background px-2 text-sm text-foreground"
+                    />
+                  </label>
+                  <Button type="submit" variant="secondary">
+                    <RotateCcw data-icon="inline-start" aria-hidden="true" />
+                    Retry Audio
+                  </Button>
+                </form>
+              )}
+            </div>
           </div>
 
           <article className="max-w-[72ch]">

@@ -9,6 +9,7 @@
     "start": "next start",
     "lint": "eslint",
     "test:materials": "tsx --test src/lib/materials/__tests__/schema.test.ts",
+    "test:original-audio": "tsx --test src/lib/original-audio/__tests__/queue.test.ts",
     "test:scraper": "tsx --test src/lib/scraper/__tests__/jobs.test.ts",
     "scrape": "tsx scripts/cron-scrape.ts",
     "wsj:login": "tsx scripts/wsj-login.ts",

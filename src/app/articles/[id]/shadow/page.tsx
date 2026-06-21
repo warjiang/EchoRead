@@ -3,12 +3,11 @@
 import { useState, useEffect } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
-import { ArrowLeft, Radio, Volume2 } from "lucide-react";
-import { generateArticleAudio } from "@/app/actions";
+import { ArrowLeft, Radio } from "lucide-react";
 import { SentencePlayer } from "@/components/SentencePlayer";
 import { AudioRecorder } from "@/components/AudioRecorder";
 import { Badge } from "@/components/ui/badge";
-import { Button, buttonVariants } from "@/components/ui/button";
+import { buttonVariants } from "@/components/ui/button";
 import {
   Card,
   CardContent,
@@ -22,13 +21,20 @@ interface Sentence {
   id: string;
   index: number;
   text: string;
-  audioUrl: string | null;
+  wsjAudioUrl: string | null;
+  wsjAudioStatus: string;
 }
 
 interface Article {
   id: string;
   title: string;
   sentences: Sentence[];
+  originalAudio: {
+    status: string;
+    clippedCount: number;
+    sentenceCount: number;
+    lastError: string | null;
+  };
 }
 
 export default function ShadowReadingPage() {
@@ -37,7 +43,6 @@ export default function ShadowReadingPage() {
   const [article, setArticle] = useState<Article | null>(null);
   const [currentSentenceIndex, setCurrentSentenceIndex] = useState(0);
   const [loading, setLoading] = useState(true);
-  const [generatingAudio, setGeneratingAudio] = useState(false);
 
   useEffect(() => {
     async function fetchArticle() {
@@ -50,20 +55,6 @@ export default function ShadowReadingPage() {
     }
     fetchArticle();
   }, [articleId]);
-
-  const generateAllAudio = async () => {
-    setGeneratingAudio(true);
-    try {
-      await generateArticleAudio(articleId);
-      // Refresh article data
-      const articleRes = await fetch(`/api/articles/${articleId}`);
-      if (articleRes.ok) {
-        setArticle(await articleRes.json());
-      }
-    } finally {
-      setGeneratingAudio(false);
-    }
-  };
 
   if (loading) {
     return (
@@ -94,6 +85,31 @@ export default function ShadowReadingPage() {
     );
   }
 
+  if (article.originalAudio.status !== "ready") {
+    return (
+      <div className="container-page max-w-4xl py-8 sm:py-10">
+        <Card>
+          <CardHeader>
+            <CardTitle>Original Audio Not Ready</CardTitle>
+          </CardHeader>
+          <CardContent className="flex flex-col gap-4">
+            <p className="text-sm leading-6 text-muted-foreground">
+              WSJ narration is {article.originalAudio.status}. Shadow reading opens
+              after sentence clips are ready.
+            </p>
+            <Link
+              href={`/articles/${articleId}`}
+              className={cn(buttonVariants({ variant: "secondary" }), "w-fit")}
+            >
+              <ArrowLeft data-icon="inline-start" aria-hidden="true" />
+              Back to Article
+            </Link>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
   return (
     <div className="container-page max-w-4xl py-8 sm:py-10">
       <div className="mb-8 border-b pb-6">
@@ -116,18 +132,6 @@ export default function ShadowReadingPage() {
             {article.sentences.length} sentences
           </p>
         </div>
-      </div>
-
-      <div className="mb-6 flex justify-end">
-        <Button
-          type="button"
-          onClick={generateAllAudio}
-          disabled={generatingAudio}
-          variant="secondary"
-        >
-          <Volume2 data-icon="inline-start" aria-hidden="true" />
-          {generatingAudio ? "Generating Audio…" : "Generate All Audio"}
-        </Button>
       </div>
 
       <div className="mb-6">

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useCallback, useState, useEffect, useMemo, useRef } from "react";
 import { useAudioPlayer } from "@/hooks/useAudioPlayer";
 import { Play, Pause, SkipBack, SkipForward } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -14,7 +14,8 @@ interface Sentence {
   id: string;
   index: number;
   text: string;
-  audioUrl: string | null;
+  wsjAudioUrl: string | null;
+  wsjAudioStatus: string;
 }
 
 interface SentencePlayerProps {
@@ -23,11 +24,28 @@ interface SentencePlayerProps {
 }
 
 export function SentencePlayer({ sentences, onSentenceChange }: SentencePlayerProps) {
-  const [currentIndex, setCurrentIndex] = useState(0);
   const [isAutoPlay, setIsAutoPlay] = useState(false);
   const { isPlaying, playbackRate, play, pause, stop, setRate } = useAudioPlayer();
   const sentenceRefs = useRef<(HTMLButtonElement | null)[]>([]);
 
+  const isPlayable = useCallback(
+    (sentence: Sentence | undefined) =>
+      Boolean(sentence?.wsjAudioUrl && sentence.wsjAudioStatus === "ready"),
+    []
+  );
+  const playableIndices = useMemo(
+    () =>
+      sentences
+        .map((sentence, index) => (isPlayable(sentence) ? index : -1))
+        .filter((index) => index >= 0),
+    [isPlayable, sentences]
+  );
+  const [currentIndex, setCurrentIndex] = useState(() => {
+    const initialIndex = sentences.findIndex((sentence) =>
+      Boolean(sentence.wsjAudioUrl && sentence.wsjAudioStatus === "ready")
+    );
+    return Math.max(0, initialIndex);
+  });
   const currentSentence = sentences[currentIndex];
 
   useEffect(() => {
@@ -39,36 +57,30 @@ export function SentencePlayer({ sentences, onSentenceChange }: SentencePlayerPr
   }, [currentIndex, onSentenceChange]);
 
   const playCurrentSentence = async () => {
-    if (!currentSentence) return;
-
-    let audioUrl = currentSentence.audioUrl;
-    if (!audioUrl) {
-      // Generate audio on demand
-      const res = await fetch("/api/tts", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ sentenceId: currentSentence.id }),
-      });
-      const data = await res.json();
-      audioUrl = data.audioUrl;
-    }
-
-    if (audioUrl) {
-      play(audioUrl);
+    if (isPlayable(currentSentence) && currentSentence.wsjAudioUrl) {
+      play(currentSentence.wsjAudioUrl);
     }
   };
 
+  const findNextPlayableIndex = (fromIndex: number) =>
+    playableIndices.find((index) => index > fromIndex) ?? currentIndex;
+
+  const findPrevPlayableIndex = (fromIndex: number) =>
+    [...playableIndices].reverse().find((index) => index < fromIndex) ?? currentIndex;
+
   const goNext = () => {
-    if (currentIndex < sentences.length - 1) {
+    const nextIndex = findNextPlayableIndex(currentIndex);
+    if (nextIndex !== currentIndex) {
       stop();
-      setCurrentIndex(currentIndex + 1);
+      setCurrentIndex(nextIndex);
     }
   };
 
   const goPrev = () => {
-    if (currentIndex > 0) {
+    const prevIndex = findPrevPlayableIndex(currentIndex);
+    if (prevIndex !== currentIndex) {
       stop();
-      setCurrentIndex(currentIndex - 1);
+      setCurrentIndex(prevIndex);
     }
   };
 
@@ -79,15 +91,22 @@ export function SentencePlayer({ sentences, onSentenceChange }: SentencePlayerPr
 
   // Auto-play next sentence when current finishes
   useEffect(() => {
-    if (!isPlaying && isAutoPlay && currentIndex < sentences.length - 1) {
+    const nextIndex = findNextPlayableIndex(currentIndex);
+    if (!isPlaying && isAutoPlay && nextIndex !== currentIndex) {
       const timer = setTimeout(() => {
-        setCurrentIndex((prev) => prev + 1);
-        playCurrentSentence();
+        setCurrentIndex(nextIndex);
       }, 1000);
       return () => clearTimeout(timer);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isPlaying, isAutoPlay]);
+  }, [isPlaying, isAutoPlay, currentIndex, playableIndices]);
+
+  useEffect(() => {
+    if (isAutoPlay && !isPlaying && isPlayable(currentSentence)) {
+      void playCurrentSentence();
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentIndex]);
 
   return (
     <div className="flex flex-col gap-4">
@@ -96,7 +115,7 @@ export function SentencePlayer({ sentences, onSentenceChange }: SentencePlayerPr
           <Button
             type="button"
             onClick={goPrev}
-            disabled={currentIndex === 0}
+            disabled={findPrevPlayableIndex(currentIndex) === currentIndex}
             variant="ghost"
             size="icon"
             aria-label="Previous sentence"
@@ -107,6 +126,7 @@ export function SentencePlayer({ sentences, onSentenceChange }: SentencePlayerPr
             type="button"
             onClick={isPlaying ? pause : playCurrentSentence}
             size="icon-lg"
+            disabled={!isPlayable(currentSentence)}
             aria-label={isPlaying ? "Pause sentence" : "Play sentence"}
           >
             {isPlaying ? (
@@ -118,7 +138,7 @@ export function SentencePlayer({ sentences, onSentenceChange }: SentencePlayerPr
           <Button
             type="button"
             onClick={goNext}
-            disabled={currentIndex === sentences.length - 1}
+            disabled={findNextPlayableIndex(currentIndex) === currentIndex}
             variant="ghost"
             size="icon"
             aria-label="Next sentence"
@@ -172,18 +192,25 @@ export function SentencePlayer({ sentences, onSentenceChange }: SentencePlayerPr
               key={sentence.id}
               ref={(el) => { sentenceRefs.current[index] = el; }}
               onClick={() => handleSentenceClick(index)}
+              disabled={!isPlayable(sentence)}
               type="button"
               className={cn(
                 "rounded-md border p-3 text-left text-sm leading-7 transition-colors focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/50",
                 index === currentIndex
                   ? "border-foreground bg-muted font-medium text-foreground"
-                  : "border-transparent text-muted-foreground hover:border-border hover:bg-muted/50 hover:text-foreground"
+                  : "border-transparent text-muted-foreground hover:border-border hover:bg-muted/50 hover:text-foreground",
+                !isPlayable(sentence) && "cursor-not-allowed opacity-50 hover:border-transparent hover:bg-transparent"
               )}
             >
               <span className="mr-2 font-mono text-xs text-muted-foreground">
                 {String(index + 1).padStart(2, "0")}
               </span>
               {sentence.text}
+              {!isPlayable(sentence) && (
+                <span className="ml-2 text-xs text-muted-foreground">
+                  Unavailable
+                </span>
+              )}
             </button>
           ))}
         </div>

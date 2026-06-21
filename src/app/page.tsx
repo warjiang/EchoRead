@@ -54,15 +54,19 @@ export default async function HomePage() {
         </form>
       </div>
 
-      {latestScrapeJob && latestScrapeJob.status !== "succeeded" && (
+      {latestScrapeJob && (
         <Alert
           variant={latestScrapeJob.status === "failed" ? "destructive" : "default"}
           className="mb-6"
         >
           <AlertTitle>Scrape job {latestScrapeJob.status}</AlertTitle>
           <AlertDescription>
-            {latestScrapeJob.errorMessage ||
-              `Job ${latestScrapeJob.id} is collecting up to ${latestScrapeJob.maxArticles} articles.`}
+            {latestScrapeJob.status === "succeeded"
+              ? latestScrapeJob.createdCount > 0
+                ? `Added ${latestScrapeJob.createdCount} new article${latestScrapeJob.createdCount === 1 ? "" : "s"}.`
+                : "Finished, but no new articles were added. The worker may have collected articles already in the queue."
+              : latestScrapeJob.errorMessage ||
+                `Job ${latestScrapeJob.id} is collecting up to ${latestScrapeJob.maxArticles} articles.`}
           </AlertDescription>
         </Alert>
       )}

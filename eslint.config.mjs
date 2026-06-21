@@ -18,6 +18,7 @@ const eslintConfig = defineConfig([
     "prisma/prisma/**",
     "prisma/*.db",
     "prisma/*.db-journal",
+    "worker/wsj-worker/.venv/**",
   ]),
 ]);
 
