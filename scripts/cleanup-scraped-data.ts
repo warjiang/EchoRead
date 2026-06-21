@@ -1,11 +1,11 @@
 import { loadEnvConfig } from "@next/env";
-import { PrismaClient } from "@prisma/client";
+import { count, inArray, isNotNull } from "drizzle-orm";
 import * as fs from "fs/promises";
 import * as path from "path";
+import type { SQLiteTable } from "drizzle-orm/sqlite-core";
+import { closeDb, db, schema } from "../src/lib/db";
 
 loadEnvConfig(process.cwd());
-
-const prisma = new PrismaClient();
 
 interface Options {
   dryRun: boolean;
@@ -109,20 +109,24 @@ async function removeGeneratedAudio(audioDir: string, dryRun: boolean): Promise<
 async function main() {
   const options = parseOptions(process.argv.slice(2));
   const audioDir = path.resolve(process.env.AUDIO_PUBLIC_DIR || path.join(process.cwd(), "public", "audio"));
-  const articleIds = await prisma.article.findMany({ select: { id: true } });
+  const articleIds = await db.query.articles.findMany({ columns: { id: true } });
   const articleIdValues = articleIds.map((article) => article.id);
+  const countRows = async (table: SQLiteTable) => {
+    const [row] = await db.select({ value: count() }).from(table);
+    return row?.value ?? 0;
+  };
 
   const counts = {
     articles: articleIds.length,
-    sentences: await prisma.sentence.count(),
-    scrapeJobs: await prisma.scrapeJob.count(),
-    readingHistory: await prisma.readingHistory.count(),
-    trainingPackages: await prisma.trainingPackage.count(),
-    materialJobs: await prisma.materialJob.count(),
-    articleAudio: await prisma.articleAudio.count(),
-    articleAudioJobs: await prisma.articleAudioJob.count(),
-    vocabulary: await prisma.vocabulary.count(),
-    linkedVocabulary: await prisma.vocabulary.count({ where: { articleId: { not: null } } }),
+    sentences: await countRows(schema.sentences),
+    scrapeJobs: await countRows(schema.scrapeJobs),
+    readingHistory: await countRows(schema.readingHistory),
+    trainingPackages: await countRows(schema.trainingPackages),
+    materialJobs: await countRows(schema.materialJobs),
+    articleAudio: await countRows(schema.articleAudio),
+    articleAudioJobs: await countRows(schema.articleAudioJobs),
+    vocabulary: await countRows(schema.vocabulary),
+    linkedVocabulary: (await db.select({ value: count() }).from(schema.vocabulary).where(isNotNull(schema.vocabulary.articleId)))[0]?.value ?? 0,
   };
   const audioCounts = options.keepAudio ? null : await removeGeneratedAudio(audioDir, true);
 
@@ -140,22 +144,29 @@ async function main() {
     return;
   }
 
-  await prisma.$transaction([
-    prisma.articleAudioJob.deleteMany(),
-    prisma.articleAudio.deleteMany(),
-    prisma.materialJob.deleteMany(),
-    prisma.trainingPackage.deleteMany(),
-    prisma.readingHistory.deleteMany(),
-    prisma.sentence.deleteMany(),
-    options.includeVocabulary
-      ? prisma.vocabulary.deleteMany()
-      : prisma.vocabulary.updateMany({
-          where: articleIdValues.length > 0 ? { articleId: { in: articleIdValues } } : { articleId: { not: null } },
-          data: { articleId: null },
-        }),
-    prisma.article.deleteMany(),
-    prisma.scrapeJob.deleteMany(),
-  ]);
+  db.transaction((tx) => {
+    tx.delete(schema.articleAudioJobs).run();
+    tx.delete(schema.articleAudio).run();
+    tx.delete(schema.materialJobs).run();
+    tx.delete(schema.trainingPackages).run();
+    tx.delete(schema.readingHistory).run();
+    tx.delete(schema.sentences).run();
+    if (options.includeVocabulary) {
+      tx.delete(schema.vocabulary).run();
+    } else if (articleIdValues.length > 0) {
+      tx.update(schema.vocabulary)
+        .set({ articleId: null })
+        .where(inArray(schema.vocabulary.articleId, articleIdValues))
+        .run();
+    } else {
+      tx.update(schema.vocabulary)
+        .set({ articleId: null })
+        .where(isNotNull(schema.vocabulary.articleId))
+        .run();
+    }
+    tx.delete(schema.articles).run();
+    tx.delete(schema.scrapeJobs).run();
+  });
 
   if (!options.keepAudio) {
     await removeGeneratedAudio(audioDir, false);
@@ -173,5 +184,5 @@ main()
     process.exitCode = 1;
   })
   .finally(async () => {
-    await prisma.$disconnect();
+    closeDb();
   });

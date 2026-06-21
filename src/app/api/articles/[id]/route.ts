@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/db";
+import { asc, eq } from "drizzle-orm";
+import { db, schema } from "@/lib/db";
 import { serializeArticleAudio } from "@/lib/original-audio/queue";
 
 export async function GET(
@@ -8,21 +9,25 @@ export async function GET(
 ) {
   const { id } = await params;
 
-  const article = await prisma.article.findUnique({
-    where: { id },
-    include: {
-      sentences: { orderBy: { index: "asc" } },
-      originalAudio: true,
-      originalAudioJob: true,
-    },
+  const article = await db.query.articles.findFirst({
+    where: eq(schema.articles.id, id),
   });
 
   if (!article) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
+  const [sentences, originalAudio, originalAudioJob] = await Promise.all([
+    db.query.sentences.findMany({
+      where: eq(schema.sentences.articleId, id),
+      orderBy: asc(schema.sentences.index),
+    }),
+    db.query.articleAudio.findFirst({ where: eq(schema.articleAudio.articleId, id) }),
+    db.query.articleAudioJobs.findFirst({ where: eq(schema.articleAudioJobs.articleId, id) }),
+  ]);
 
   return NextResponse.json({
     ...article,
-    originalAudio: serializeArticleAudio(article.originalAudio, article.originalAudioJob),
+    sentences,
+    originalAudio: serializeArticleAudio(originalAudio, originalAudioJob),
   });
 }

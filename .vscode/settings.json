@@ -1,7 +1,15 @@
 {
     "cSpell.words": [
+        "autojunk",
+        "codec",
         "cpus",
+        "domcontentloaded",
+        "ffprobe",
+        "libmp",
+        "livecoverage",
         "MARKITDOWN",
+        "nokey",
+        "noprint",
         "seccomp",
         "TINYPROXY"
     ]

@@ -3,11 +3,12 @@ import assert from "node:assert/strict";
 import {
   getMinCoverage,
   isCoverageReady,
+  normalizeWorkerAudioProcessUrl,
   normalizeWorkerAudioJobsUrl,
   normalizeTimeoutSeconds,
   serializeArticleAudio,
 } from "@/lib/original-audio/queue";
-import type { ArticleAudio, ArticleAudioJob } from "@prisma/client";
+import type { ArticleAudio, ArticleAudioJob } from "@/db/schema";
 
 test("normalizes original-audio timeout seconds", () => {
   assert.equal(normalizeTimeoutSeconds(undefined), 300);
@@ -28,6 +29,14 @@ test("normalizes original-audio worker URLs from manual and docker scraper URLs"
   assert.equal(
     normalizeWorkerAudioJobsUrl("http://localhost:8000/audio/jobs"),
     "http://localhost:8000/audio/jobs"
+  );
+  assert.equal(
+    normalizeWorkerAudioProcessUrl("http://localhost:8000/audio/jobs"),
+    "http://localhost:8000/audio/process"
+  );
+  assert.equal(
+    normalizeWorkerAudioProcessUrl("http://wsj-worker:8000/jobs"),
+    "http://wsj-worker:8000/audio/process"
   );
 });
 

@@ -1,4 +1,5 @@
-import { prisma } from "@/lib/db";
+import { eq } from "drizzle-orm";
+import { db, schema } from "@/lib/db";
 import { notFound } from "next/navigation";
 import Link from "next/link";
 import { ArrowLeft, ExternalLink, Headphones, RotateCcw } from "lucide-react";
@@ -19,20 +20,19 @@ interface Props {
 export default async function ArticleDetailPage({ params }: Props) {
   const { id } = await params;
 
-  const article = await prisma.article.findUnique({
-    where: { id },
-    include: {
-      sentences: { orderBy: { index: "asc" } },
-      originalAudio: true,
-      originalAudioJob: true,
-    },
+  const article = await db.query.articles.findFirst({
+    where: eq(schema.articles.id, id),
   });
 
   if (!article) notFound();
+  const [originalAudio, originalAudioJob] = await Promise.all([
+    db.query.articleAudio.findFirst({ where: eq(schema.articleAudio.articleId, id) }),
+    db.query.articleAudioJobs.findFirst({ where: eq(schema.articleAudioJobs.articleId, id) }),
+  ]);
 
   const paragraphs = article.content.split("\n\n").filter(Boolean);
-  const originalAudio = serializeArticleAudio(article.originalAudio, article.originalAudioJob);
-  const isShadowReady = originalAudio.status === "ready";
+  const originalAudioState = serializeArticleAudio(originalAudio, originalAudioJob);
+  const isShadowReady = originalAudioState.status === "ready";
   const retryAction = retryOriginalArticleAudio.bind(null, id);
 
   const audioStatusLabel: Record<string, string> = {
@@ -86,29 +86,29 @@ export default async function ArticleDetailPage({ params }: Props) {
                   </Button>
                 )}
                 <Badge variant={isShadowReady ? "secondary" : "outline"}>
-                  {audioStatusLabel[originalAudio.status] || "Original audio pending"}
+                  {audioStatusLabel[originalAudioState.status] || "Original audio pending"}
                 </Badge>
               </div>
 
-              <Alert variant={originalAudio.status === "failed" ? "destructive" : "default"}>
+              <Alert variant={originalAudioState.status === "failed" ? "destructive" : "default"}>
                 <AlertTitle>
-                  {audioStatusLabel[originalAudio.status] || "Original audio pending"}
+                  {audioStatusLabel[originalAudioState.status] || "Original audio pending"}
                 </AlertTitle>
                 <AlertDescription>
-                  {originalAudio.status === "ready" &&
-                    `${originalAudio.clippedCount}/${originalAudio.sentenceCount} sentences have WSJ clips.`}
-                  {originalAudio.status === "processing" &&
+                  {originalAudioState.status === "ready" &&
+                    `${originalAudioState.clippedCount}/${originalAudioState.sentenceCount} sentences have WSJ clips.`}
+                  {originalAudioState.status === "processing" &&
                     "The worker is downloading and cutting WSJ narration in the background."}
-                  {originalAudio.status === "pending" &&
+                  {originalAudioState.status === "pending" &&
                     "Original audio processing will start in the background."}
-                  {originalAudio.status === "unavailable" &&
-                    (originalAudio.lastError || "This article does not expose accessible WSJ narration.")}
-                  {originalAudio.status === "failed" &&
-                    (originalAudio.lastError || "Original audio processing failed.")}
+                  {originalAudioState.status === "unavailable" &&
+                    (originalAudioState.lastError || "This article does not expose accessible WSJ narration.")}
+                  {originalAudioState.status === "failed" &&
+                    (originalAudioState.lastError || "Original audio processing failed.")}
                 </AlertDescription>
               </Alert>
 
-              {originalAudio.status === "failed" && (
+              {originalAudioState.status === "failed" && (
                 <form action={retryAction} className="flex flex-wrap items-end gap-2">
                   <label className="flex flex-col gap-1 text-xs font-medium text-muted-foreground">
                     Retry timeout
@@ -117,7 +117,7 @@ export default async function ArticleDetailPage({ params }: Props) {
                       type="number"
                       min={30}
                       max={3600}
-                      defaultValue={originalAudio.job?.timeoutSeconds || 300}
+                      defaultValue={originalAudioState.job?.timeoutSeconds || 300}
                       className="h-8 w-32 rounded-md border bg-background px-2 text-sm text-foreground"
                     />
                   </label>

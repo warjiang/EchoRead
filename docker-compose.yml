@@ -50,13 +50,15 @@ services:
       - WSJ_EMAIL=${WSJ_EMAIL}
       - WSJ_PASSWORD=${WSJ_PASSWORD}
       - WSJ_STORAGE_PATH=/app/data/.wsj-auth.json
-      - WSJ_WORKER_URL=http://wsj-worker:8000/jobs
-      - ORIGINAL_AUDIO_WORKER_URL=http://wsj-worker:8000/audio/jobs
+      - WSJ_WORKER_URL=http://wsj-worker:8000/scrape
+      - ORIGINAL_AUDIO_WORKER_URL=http://wsj-worker:8000/audio/process
       - ORIGINAL_AUDIO_MIN_COVERAGE=${ORIGINAL_AUDIO_MIN_COVERAGE:-0.9}
       - ORIGINAL_AUDIO_MAX_ATTEMPTS=${ORIGINAL_AUDIO_MAX_ATTEMPTS:-3}
       - ORIGINAL_AUDIO_TIMEOUT_SECONDS=${ORIGINAL_AUDIO_TIMEOUT_SECONDS:-300}
       - SCRAPER_CALLBACK_BASE_URL=http://app:3000
       - SCRAPER_WORKER_SECRET=${SCRAPER_WORKER_SECRET:-}
+      - SCRAPER_MAX_ATTEMPTS=${SCRAPER_MAX_ATTEMPTS:-3}
+      - SCRAPER_WORKER_TIMEOUT_SECONDS=${SCRAPER_WORKER_TIMEOUT_SECONDS:-600}
       - MATERIAL_WORKER_SECRET=${MATERIAL_WORKER_SECRET:-}
       - TTS_PROVIDER=${TTS_PROVIDER:-edge}
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
@@ -67,6 +69,9 @@ services:
       - LLM_API_KEY=${LLM_API_KEY:-${OPENAI_API_KEY:-}}
       - LLM_RESPONSE_FORMAT=${LLM_RESPONSE_FORMAT:-json_object}
       - LLM_TEMPERATURE=${LLM_TEMPERATURE:-0.4}
+      - ADMIN_SECRET=${ADMIN_SECRET:-}
+      - ADMIN_SESSION_COOKIE_NAME=${ADMIN_SESSION_COOKIE_NAME:-echoread_admin}
+      - ADMIN_SESSION_MAX_AGE_SECONDS=${ADMIN_SESSION_MAX_AGE_SECONDS:-86400}
       - NEXT_PUBLIC_APP_URL=http://localhost:3000
     volumes:
       - ./data:/app/data
@@ -76,6 +81,44 @@ services:
       interval: 10s
       timeout: 5s
       retries: 12
+    restart: unless-stopped
+
+  worker:
+    build: .
+    depends_on:
+      app:
+        condition: service_healthy
+      wsj-worker:
+        condition: service_healthy
+    command: ["pnpm", "worker"]
+    environment:
+      - DATABASE_URL=file:/app/data/shadow-reading.db
+      - WSJ_WORKER_URL=http://wsj-worker:8000/scrape
+      - ORIGINAL_AUDIO_WORKER_URL=http://wsj-worker:8000/audio/process
+      - ORIGINAL_AUDIO_MIN_COVERAGE=${ORIGINAL_AUDIO_MIN_COVERAGE:-0.9}
+      - ORIGINAL_AUDIO_MAX_ATTEMPTS=${ORIGINAL_AUDIO_MAX_ATTEMPTS:-3}
+      - ORIGINAL_AUDIO_TIMEOUT_SECONDS=${ORIGINAL_AUDIO_TIMEOUT_SECONDS:-300}
+      - SCRAPER_CALLBACK_BASE_URL=http://app:3000
+      - SCRAPER_WORKER_SECRET=${SCRAPER_WORKER_SECRET:-}
+      - SCRAPER_MAX_ATTEMPTS=${SCRAPER_MAX_ATTEMPTS:-3}
+      - SCRAPER_WORKER_TIMEOUT_SECONDS=${SCRAPER_WORKER_TIMEOUT_SECONDS:-600}
+      - MATERIAL_WORKER_SECRET=${MATERIAL_WORKER_SECRET:-}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - OPENAI_BASE_URL=${OPENAI_BASE_URL:-}
+      - LLM_PROVIDER=${LLM_PROVIDER:-openai-compatible}
+      - LLM_MODEL_HIGH_QUALITY=${LLM_MODEL_HIGH_QUALITY:-gpt-4.1}
+      - LLM_BASE_URL=${LLM_BASE_URL:-${OPENAI_BASE_URL:-}}
+      - LLM_API_KEY=${LLM_API_KEY:-${OPENAI_API_KEY:-}}
+      - LLM_RESPONSE_FORMAT=${LLM_RESPONSE_FORMAT:-json_object}
+      - LLM_TEMPERATURE=${LLM_TEMPERATURE:-0.4}
+      - NEXT_PUBLIC_APP_URL=http://localhost:3000
+      - WORKER_INTERVAL_MS=${WORKER_INTERVAL_MS:-30000}
+      - WORKER_SCRAPE_LIMIT=${WORKER_SCRAPE_LIMIT:-1}
+      - WORKER_MATERIAL_LIMIT=${WORKER_MATERIAL_LIMIT:-2}
+      - WORKER_AUDIO_LIMIT=${WORKER_AUDIO_LIMIT:-2}
+    volumes:
+      - ./data:/app/data
+      - ./public/audio:/app/public/audio
     restart: unless-stopped
 
   bootstrap-scrape:

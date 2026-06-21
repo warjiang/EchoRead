@@ -15,9 +15,7 @@ const eslintConfig = defineConfig([
     "deploy/clash-config/**",
     "deploy/clash-ui/**",
     "public/audio/**",
-    "prisma/prisma/**",
-    "prisma/*.db",
-    "prisma/*.db-journal",
+    "data/**",
     "worker/wsj-worker/.venv/**",
   ]),
 ]);

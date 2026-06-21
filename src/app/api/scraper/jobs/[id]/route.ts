@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/db";
+import { eq } from "drizzle-orm";
+import { db, schema } from "@/lib/db";
 import { isAuthorizedByBearer } from "@/lib/api-auth";
 import { toScrapeJobApi } from "@/lib/scraper/worker";
 
@@ -12,7 +13,7 @@ export async function GET(
   }
 
   const { id } = await params;
-  const job = await prisma.scrapeJob.findUnique({ where: { id } });
+  const job = await db.query.scrapeJobs.findFirst({ where: eq(schema.scrapeJobs.id, id) });
   if (!job) {
     return NextResponse.json({ error: "Scrape job not found" }, { status: 404 });
   }

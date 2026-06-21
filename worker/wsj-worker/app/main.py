@@ -1079,10 +1079,14 @@ async def run_audio_job(request: AudioJobRequest) -> None:
         AudioJobCallback(jobId=request.jobId, articleId=request.articleId, status="running"),
     )
 
+    await post_audio_job_callback(request, await build_audio_job_callback(request))
+
+
+async def build_audio_job_callback(request: AudioJobRequest) -> AudioJobCallback:
     try:
-        callback = await asyncio.wait_for(process_audio_job(request), timeout=request.timeoutSeconds)
+        return await asyncio.wait_for(process_audio_job(request), timeout=request.timeoutSeconds)
     except asyncio.TimeoutError:
-        callback = AudioJobCallback(
+        return AudioJobCallback(
             jobId=request.jobId,
             articleId=request.articleId,
             status="failed",
@@ -1090,14 +1094,12 @@ async def run_audio_job(request: AudioJobRequest) -> None:
         )
     except Exception as error:
         logger.exception("Audio job %s failed", request.jobId)
-        callback = AudioJobCallback(
+        return AudioJobCallback(
             jobId=request.jobId,
             articleId=request.articleId,
             status="failed",
             errorMessage=str(error)[:1500],
         )
-
-    await post_audio_job_callback(request, callback)
 
 
 async def run_scrape_job(request: ScrapeJobRequest) -> None:
@@ -1143,6 +1145,11 @@ async def create_job(request: ScrapeJobRequest, background_tasks: BackgroundTask
 async def create_audio_job(request: AudioJobRequest, background_tasks: BackgroundTasks) -> AudioJobAccepted:
     background_tasks.add_task(run_audio_job, request)
     return AudioJobAccepted(jobId=request.jobId, status="accepted")
+
+
+@app.post("/audio/process", dependencies=[Depends(require_secret)])
+async def process_audio_job_sync(request: AudioJobRequest) -> AudioJobCallback:
+    return await build_audio_job_callback(request)
 
 
 @app.post("/scrape", dependencies=[Depends(require_secret)])

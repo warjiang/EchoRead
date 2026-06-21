@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
-import { prisma } from "@/lib/db";
+import { and, eq } from "drizzle-orm";
+import { db, schema } from "@/lib/db";
 import { MATERIAL_JOB_TYPE, toMaterialApiPackage } from "@/lib/materials/persistence";
 
 interface Props {
@@ -10,15 +11,10 @@ export async function GET(_request: Request, { params }: Props) {
   const { id } = await params;
 
   const [article, trainingPackage, job] = await Promise.all([
-    prisma.article.findUnique({ where: { id }, select: { id: true } }),
-    prisma.trainingPackage.findUnique({ where: { articleId: id } }),
-    prisma.materialJob.findUnique({
-      where: {
-        articleId_jobType: {
-          articleId: id,
-          jobType: MATERIAL_JOB_TYPE,
-        },
-      },
+    db.query.articles.findFirst({ where: eq(schema.articles.id, id), columns: { id: true } }),
+    db.query.trainingPackages.findFirst({ where: eq(schema.trainingPackages.articleId, id) }),
+    db.query.materialJobs.findFirst({
+      where: and(eq(schema.materialJobs.articleId, id), eq(schema.materialJobs.jobType, MATERIAL_JOB_TYPE)),
     }),
   ]);
 
@@ -28,7 +24,7 @@ export async function GET(_request: Request, { params }: Props) {
 
   return NextResponse.json({
     articleId: id,
-    trainingPackage: toMaterialApiPackage(trainingPackage),
+    trainingPackage: toMaterialApiPackage(trainingPackage || null),
     job: job
       ? {
           status: job.status,

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/db";
+import { asc, and, eq, isNull } from "drizzle-orm";
+import { db, schema } from "@/lib/db";
 import { isAuthorizedByBearer } from "@/lib/api-auth";
 import { generateAudio } from "@/lib/tts/edge-tts";
 
@@ -7,9 +8,7 @@ export async function POST(request: NextRequest) {
   try {
     const { sentenceId, voice, rate } = await request.json();
 
-    const sentence = await prisma.sentence.findUnique({
-      where: { id: sentenceId },
-    });
+    const sentence = await db.query.sentences.findFirst({ where: eq(schema.sentences.id, sentenceId) });
 
     if (!sentence) {
       return NextResponse.json({ error: "Sentence not found" }, { status: 404 });
@@ -25,10 +24,7 @@ export async function POST(request: NextRequest) {
       rate: rate || "+0%",
     });
 
-    await prisma.sentence.update({
-      where: { id: sentenceId },
-      data: { audioUrl },
-    });
+    await db.update(schema.sentences).set({ audioUrl }).where(eq(schema.sentences.id, sentenceId)).run();
 
     return NextResponse.json({ audioUrl });
   } catch (error) {
@@ -46,9 +42,9 @@ export async function PUT(request: NextRequest) {
   try {
     const { articleId, voice, rate } = await request.json();
 
-    const sentences = await prisma.sentence.findMany({
-      where: { articleId, audioUrl: null },
-      orderBy: { index: "asc" },
+    const sentences = await db.query.sentences.findMany({
+      where: and(eq(schema.sentences.articleId, articleId), isNull(schema.sentences.audioUrl)),
+      orderBy: asc(schema.sentences.index),
     });
 
     const results = [];
@@ -59,10 +55,7 @@ export async function PUT(request: NextRequest) {
           voice: voice || "en-US-AriaNeural",
           rate: rate || "+0%",
         });
-        await prisma.sentence.update({
-          where: { id: sentence.id },
-          data: { audioUrl },
-        });
+        await db.update(schema.sentences).set({ audioUrl }).where(eq(schema.sentences.id, sentence.id)).run();
         results.push({ id: sentence.id, audioUrl });
       } catch {
         results.push({ id: sentence.id, error: "Failed" });

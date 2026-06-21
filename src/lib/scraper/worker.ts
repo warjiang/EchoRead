@@ -1,7 +1,9 @@
 export {
-  createAndStartScrapeJob,
+  createScrapeJob,
   ingestScrapeJobUpdate,
   normalizeMaxArticles,
+  normalizeWorkerScrapeUrl,
+  processScrapeJobs,
   toScrapeJobApi,
   type IngestScrapeJobInput,
   type ScrapedArticle,

@@ -2,7 +2,7 @@ import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   output: "standalone",
-  serverExternalPackages: ["playwright", "@prisma/client", "prisma"],
+  serverExternalPackages: ["playwright", "better-sqlite3"],
   turbopack: {
     root: process.cwd(),
   },

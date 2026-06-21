@@ -1,4 +1,5 @@
-import { prisma } from "@/lib/db";
+import { desc } from "drizzle-orm";
+import { db, schema } from "@/lib/db";
 import { ArticleCard } from "@/components/ArticleCard";
 import { triggerScrape } from "@/app/actions";
 import { Badge } from "@/components/ui/badge";
@@ -15,16 +16,16 @@ import {
 import { Newspaper, RefreshCw } from "lucide-react";
 
 async function getLatestScrapeJob() {
-  return prisma.scrapeJob.findFirst({
-    orderBy: { createdAt: "desc" },
+  return db.query.scrapeJobs.findFirst({
+    orderBy: desc(schema.scrapeJobs.createdAt),
   }).catch(() => null);
 }
 
 export default async function HomePage() {
   const [articles, latestScrapeJob] = await Promise.all([
-    prisma.article.findMany({
-      orderBy: { publishedAt: "desc" },
-      take: 20,
+    db.query.articles.findMany({
+      orderBy: desc(schema.articles.publishedAt),
+      limit: 20,
     }),
     getLatestScrapeJob(),
   ]);

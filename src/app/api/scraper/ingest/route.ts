@@ -1,7 +1,5 @@
-import { after, NextRequest, NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { isAuthorizedByBearer } from "@/lib/api-auth";
-import { processMaterialJobs } from "@/lib/materials/queue";
-import { processArticleAudioJobs } from "@/lib/original-audio/queue";
 import {
   ingestScrapeJobUpdate,
   toScrapeJobApi,
@@ -64,19 +62,6 @@ export async function POST(request: NextRequest) {
   const result = await ingestScrapeJobUpdate(payload);
   if (!result.job) {
     return NextResponse.json({ error: "Scrape job not found" }, { status: 404 });
-  }
-
-  if (result.createdCount > 0 || result.audioQueuedCount > 0) {
-    after(async () => {
-      try {
-        await Promise.all([
-          processMaterialJobs(Math.min(result.createdCount, 3)),
-          processArticleAudioJobs(Math.min(result.audioQueuedCount || result.createdCount, 3)),
-        ]);
-      } catch (error) {
-        console.error("Background post-scrape workers failed:", error);
-      }
-    });
   }
 
   return NextResponse.json({

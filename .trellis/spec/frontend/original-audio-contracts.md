@@ -16,6 +16,7 @@
 - Worker API:
   - `POST /audio/jobs` accepts `{ jobId, articleId, articleUrl, title, sentences, callbackUrl, callbackSecret, timeoutSeconds, coverageThreshold }`.
   - Worker posts callbacks to `POST /api/original-audio/ingest`.
+  - `POST /audio/process` accepts the same payload and returns the same callback payload synchronously for the standalone TS worker path.
 - Retry API:
   - `POST /api/articles/:id/original-audio/retry` accepts `{ timeoutSeconds }`.
 
@@ -24,6 +25,7 @@
 - `ArticleAudio.status` values: `pending`, `processing`, `ready`, `unavailable`, `failed`.
 - `Sentence.wsjAudioStatus` values: `pending`, `ready`, `unavailable`, `failed`.
 - Worker callback statuses: `running`, `succeeded`, `unavailable`, `failed`.
+- Primary worker orchestration uses the standalone TS worker plus Python `/audio/process`; `/audio/jobs` remains available for compatibility callback flows.
 - Required env keys for Docker flow:
   - `ORIGINAL_AUDIO_WORKER_URL`
   - `ORIGINAL_AUDIO_MIN_COVERAGE`

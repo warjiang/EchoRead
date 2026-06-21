@@ -1,4 +1,5 @@
-import { prisma } from "@/lib/db";
+import { desc, eq } from "drizzle-orm";
+import { db, schema } from "@/lib/db";
 import { BarChart3, Clock, BookOpen } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -16,11 +17,13 @@ import {
 } from "@/components/ui/empty";
 
 export default async function HistoryPage() {
-  const history = await prisma.readingHistory.findMany({
-    orderBy: { createdAt: "desc" },
-    include: { article: true },
-    take: 50,
-  });
+  const rows = await db
+    .select({ record: schema.readingHistory, article: schema.articles })
+    .from(schema.readingHistory)
+    .innerJoin(schema.articles, eq(schema.readingHistory.articleId, schema.articles.id))
+    .orderBy(desc(schema.readingHistory.createdAt))
+    .limit(50);
+  const history = rows.map(({ record, article }) => ({ ...record, article }));
 
   const totalDuration = history.reduce((sum, h) => sum + h.duration, 0);
   const totalArticles = new Set(history.map((h) => h.articleId)).size;

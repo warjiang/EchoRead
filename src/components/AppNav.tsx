@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { BookOpenCheck, History, Library, Newspaper } from "lucide-react";
+import { BookOpenCheck, History, Library, Newspaper, ShieldCheck } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 
@@ -10,6 +10,7 @@ const navItems = [
   { href: "/", label: "Articles", icon: Newspaper },
   { href: "/vocabulary", label: "Vocabulary", icon: Library },
   { href: "/history", label: "History", icon: History },
+  { href: "/admin", label: "Admin", icon: ShieldCheck },
 ];
 
 function isActivePath(pathname: string, href: string) {

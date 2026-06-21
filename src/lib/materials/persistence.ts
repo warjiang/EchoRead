@@ -1,4 +1,4 @@
-import type { TrainingPackage } from "@prisma/client";
+import type { TrainingPackage } from "@/db/schema";
 import { parseAndValidateTrainingMaterialPayload } from "@/lib/materials/schema";
 import type { TrainingMaterialPayload } from "@/lib/materials/types";
 

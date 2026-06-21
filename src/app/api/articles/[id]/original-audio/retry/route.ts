@@ -1,9 +1,6 @@
-import { after, NextRequest, NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { isAuthorizedByBearer } from "@/lib/api-auth";
-import {
-  processArticleAudioJobs,
-  retryArticleAudioJob,
-} from "@/lib/original-audio/queue";
+import { retryArticleAudioJob } from "@/lib/original-audio/queue";
 
 export async function POST(
   request: NextRequest,
@@ -17,14 +14,6 @@ export async function POST(
   const body = (await request.json().catch(() => ({}))) as { timeoutSeconds?: unknown };
 
   await retryArticleAudioJob(id, body.timeoutSeconds);
-
-  after(async () => {
-    try {
-      await processArticleAudioJobs(1);
-    } catch (error) {
-      console.error("Background original-audio retry failed:", error);
-    }
-  });
 
   return NextResponse.json({ ok: true });
 }

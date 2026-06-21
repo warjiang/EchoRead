@@ -1,5 +1,7 @@
-import { prisma } from "@/lib/db";
-import type { ArticleAudio, ArticleAudioJob } from "@prisma/client";
+import { and, asc, eq, lt, lte, sql } from "drizzle-orm";
+import { recordPipelineEvent } from "@/lib/admin/pipeline";
+import { createId, db, schema, touch } from "@/lib/db";
+import type { ArticleAudio, ArticleAudioJob } from "@/db/schema";
 
 export type ArticleAudioStatus =
   | "pending"
@@ -96,6 +98,12 @@ function truncateError(error: unknown): string {
   return message.slice(0, 1500);
 }
 
+async function recordAudioEvent(input: Parameters<typeof recordPipelineEvent>[0]): Promise<void> {
+  await recordPipelineEvent(input).catch((error) => {
+    console.error("Failed to record original-audio pipeline event:", error);
+  });
+}
+
 function callbackBaseUrl(): string {
   const baseUrl =
     process.env.SCRAPER_CALLBACK_BASE_URL ||
@@ -113,8 +121,23 @@ export function normalizeWorkerAudioJobsUrl(rawUrl: string | undefined): string 
   return url.replace(/\/(?:jobs|scrape)\/?$/, "/audio/jobs");
 }
 
-function workerUrl(): string {
+export function normalizeWorkerAudioProcessUrl(rawUrl: string | undefined): string {
+  const url = rawUrl || "http://wsj-worker:8000/audio/process";
+  if (/\/audio\/process\/?$/.test(url)) {
+    return url;
+  }
+  if (/\/audio\/jobs\/?$/.test(url)) {
+    return url.replace(/\/audio\/jobs\/?$/, "/audio/process");
+  }
+  return url.replace(/\/(?:jobs|scrape)\/?$/, "/audio/process");
+}
+
+function workerJobsUrl(): string {
   return normalizeWorkerAudioJobsUrl(process.env.ORIGINAL_AUDIO_WORKER_URL || process.env.WSJ_WORKER_URL);
+}
+
+function workerProcessUrl(): string {
+  return normalizeWorkerAudioProcessUrl(process.env.ORIGINAL_AUDIO_WORKER_URL || process.env.WSJ_WORKER_URL);
 }
 
 export function serializeArticleAudio(
@@ -144,22 +167,24 @@ export function serializeArticleAudio(
 }
 
 export async function enqueueArticleAudioJob(articleId: string): Promise<void> {
-  const now = new Date();
+  const now = touch();
 
-  await prisma.$transaction(async (tx) => {
-    await tx.articleAudio.upsert({
-      where: { articleId },
-      create: {
+  db.transaction((tx) => {
+    tx.insert(schema.articleAudio)
+      .values({
+        id: createId("audio"),
         articleId,
         status: "pending",
         lastError: null,
-      },
-      update: {},
-    });
+        createdAt: now,
+        updatedAt: now,
+      })
+      .onConflictDoNothing({ target: schema.articleAudio.articleId })
+      .run();
 
-    await tx.articleAudioJob.upsert({
-      where: { articleId },
-      create: {
+    tx.insert(schema.articleAudioJobs)
+      .values({
+        id: createId("audiojob"),
         articleId,
         status: "pending",
         attempts: 0,
@@ -168,35 +193,51 @@ export async function enqueueArticleAudioJob(articleId: string): Promise<void> {
         runAfter: now,
         lockedAt: null,
         lastError: null,
-      },
-      update: {},
-    });
+        createdAt: now,
+        updatedAt: now,
+      })
+      .onConflictDoNothing({ target: schema.articleAudioJobs.articleId })
+      .run();
+  });
+  await recordAudioEvent({
+    scope: "audio",
+    entityType: "article",
+    entityId: articleId,
+    articleId,
+    status: "queued",
+    message: "Original audio job queued",
   });
 }
 
 export async function retryArticleAudioJob(articleId: string, timeoutSeconds: unknown): Promise<void> {
-  const now = new Date();
+  const now = touch();
   const normalizedTimeout = normalizeTimeoutSeconds(timeoutSeconds);
 
-  await prisma.$transaction(async (tx) => {
-    await tx.articleAudio.upsert({
-      where: { articleId },
-      create: {
+  db.transaction((tx) => {
+    tx.insert(schema.articleAudio)
+      .values({
+        id: createId("audio"),
         articleId,
         status: "pending",
         lastError: null,
-      },
-      update: {
+        createdAt: now,
+        updatedAt: now,
+      })
+      .onConflictDoUpdate({
+        target: schema.articleAudio.articleId,
+        set: {
         status: "pending",
         lastError: null,
         startedAt: null,
         finishedAt: null,
+          updatedAt: now,
       },
-    });
+      })
+      .run();
 
-    await tx.articleAudioJob.upsert({
-      where: { articleId },
-      create: {
+    tx.insert(schema.articleAudioJobs)
+      .values({
+        id: createId("audiojob"),
         articleId,
         status: "pending",
         attempts: 0,
@@ -206,8 +247,12 @@ export async function retryArticleAudioJob(articleId: string, timeoutSeconds: un
         lockedAt: null,
         workerJobId: null,
         lastError: null,
-      },
-      update: {
+        createdAt: now,
+        updatedAt: now,
+      })
+      .onConflictDoUpdate({
+        target: schema.articleAudioJobs.articleId,
+        set: {
         status: "pending",
         attempts: 0,
         maxAttempts: getMaxAttempts(),
@@ -216,37 +261,48 @@ export async function retryArticleAudioJob(articleId: string, timeoutSeconds: un
         lockedAt: null,
         workerJobId: null,
         lastError: null,
+          updatedAt: now,
       },
-    });
+      })
+      .run();
 
-    await tx.sentence.updateMany({
-      where: { articleId },
-      data: {
+    tx.update(schema.sentences)
+      .set({
         wsjAudioUrl: null,
         wsjAudioStartMs: null,
         wsjAudioEndMs: null,
         wsjAudioStatus: "pending",
-      },
-    });
+      })
+      .where(eq(schema.sentences.articleId, articleId))
+      .run();
+  });
+  await recordAudioEvent({
+    scope: "manual",
+    entityType: "article",
+    entityId: articleId,
+    articleId,
+    status: "queued",
+    message: "Original audio retry queued",
+    metadata: { timeoutSeconds: normalizedTimeout },
   });
 }
 
 async function recoverStaleJobs(): Promise<void> {
   const staleBefore = new Date(Date.now() - STALE_JOB_LOCK_MINUTES * 60 * 1000);
+  const now = touch();
 
-  await prisma.articleAudioJob.updateMany({
-    where: {
-      status: "processing",
-      lockedAt: { lt: staleBefore },
-    },
-    data: {
+  await db
+    .update(schema.articleAudioJobs)
+    .set({
       status: "pending",
       lockedAt: null,
       workerJobId: null,
       lastError: "Recovered stale original-audio job",
-      runAfter: new Date(),
-    },
-  });
+      runAfter: now,
+      updatedAt: now,
+    })
+    .where(and(eq(schema.articleAudioJobs.status, "processing"), lt(schema.articleAudioJobs.lockedAt, staleBefore)))
+    .run();
 }
 
 async function claimJobs(limit: number): Promise<ArticleAudioJob[]> {
@@ -254,41 +310,41 @@ async function claimJobs(limit: number): Promise<ArticleAudioJob[]> {
 
   const claimed: ArticleAudioJob[] = [];
   for (let i = 0; i < limit; i += 1) {
-    const candidate = await prisma.articleAudioJob.findFirst({
-      where: {
-        status: "pending",
-        runAfter: { lte: new Date() },
-      },
-      orderBy: { createdAt: "asc" },
+    const candidate = await db.query.articleAudioJobs.findFirst({
+      where: and(eq(schema.articleAudioJobs.status, "pending"), lte(schema.articleAudioJobs.runAfter, new Date())),
+      orderBy: asc(schema.articleAudioJobs.createdAt),
     });
 
     if (!candidate) {
       break;
     }
 
-    const lockedAt = new Date();
-    const updated = await prisma.articleAudioJob.updateMany({
-      where: {
-        id: candidate.id,
-        status: "pending",
-      },
-      data: {
+    const lockedAt = touch();
+    const [updated] = await db
+      .update(schema.articleAudioJobs)
+      .set({
         status: "processing",
         lockedAt,
         workerJobId: candidate.id,
-        attempts: { increment: 1 },
+        attempts: sql`${schema.articleAudioJobs.attempts} + 1`,
         lastError: null,
-      },
-    });
+        updatedAt: lockedAt,
+      })
+      .where(and(eq(schema.articleAudioJobs.id, candidate.id), eq(schema.articleAudioJobs.status, "pending")))
+      .returning();
 
-    if (updated.count === 1) {
-      claimed.push({
-        ...candidate,
-        status: "processing",
-        attempts: candidate.attempts + 1,
-        workerJobId: candidate.id,
-        lockedAt,
+    if (updated) {
+      await recordAudioEvent({
+        scope: "audio",
+        entityType: "articleAudioJob",
+        entityId: candidate.id,
+        articleId: candidate.articleId,
+        jobId: candidate.id,
+        status: "running",
+        message: "Original audio job claimed by worker",
+        metadata: { attempts: updated.attempts },
       });
+      claimed.push(updated);
     }
   }
 
@@ -298,84 +354,106 @@ async function claimJobs(limit: number): Promise<ArticleAudioJob[]> {
 async function markRetryOrFailed(job: ArticleAudioJob, error: unknown): Promise<void> {
   const lastError = truncateError(error);
   const hasMoreAttempts = job.attempts < job.maxAttempts;
+  const now = touch();
 
   if (!hasMoreAttempts) {
-    await prisma.$transaction([
-      prisma.articleAudioJob.update({
-        where: { id: job.id },
-        data: {
+    db.transaction((tx) => {
+      tx.update(schema.articleAudioJobs)
+        .set({
           status: "failed",
           lockedAt: null,
           workerJobId: null,
           lastError,
-        },
-      }),
-      prisma.articleAudio.updateMany({
-        where: { articleId: job.articleId },
-        data: {
+          updatedAt: now,
+        })
+        .where(eq(schema.articleAudioJobs.id, job.id))
+        .run();
+      tx.update(schema.articleAudio)
+        .set({
           status: "failed",
           lastError,
-          finishedAt: new Date(),
-        },
-      }),
-    ]);
+          finishedAt: now,
+          updatedAt: now,
+        })
+        .where(eq(schema.articleAudio.articleId, job.articleId))
+        .run();
+    });
+    await recordAudioEvent({
+      scope: "audio",
+      entityType: "articleAudioJob",
+      entityId: job.id,
+      articleId: job.articleId,
+      jobId: job.id,
+      status: "failed",
+      message: "Original audio job failed",
+      error,
+    });
     return;
   }
 
   const retryAfter = new Date(Date.now() + getBackoffMinutes(job.attempts) * 60 * 1000);
-  await prisma.$transaction([
-    prisma.articleAudioJob.update({
-      where: { id: job.id },
-      data: {
+  db.transaction((tx) => {
+    tx.update(schema.articleAudioJobs)
+      .set({
         status: "pending",
         runAfter: retryAfter,
         lockedAt: null,
         workerJobId: null,
         lastError,
-      },
-    }),
-    prisma.articleAudio.updateMany({
-      where: { articleId: job.articleId },
-      data: {
+        updatedAt: now,
+      })
+      .where(eq(schema.articleAudioJobs.id, job.id))
+      .run();
+    tx.update(schema.articleAudio)
+      .set({
         status: "pending",
         lastError: `Retrying after error: ${lastError}`,
-      },
-    }),
-  ]);
+        updatedAt: now,
+      })
+      .where(eq(schema.articleAudio.articleId, job.articleId))
+      .run();
+  });
+  await recordAudioEvent({
+    scope: "audio",
+    entityType: "articleAudioJob",
+    entityId: job.id,
+    articleId: job.articleId,
+    jobId: job.id,
+    status: "retrying",
+    message: "Original audio job scheduled for retry",
+    error,
+    metadata: { runAfter: retryAfter.toISOString() },
+  });
 }
 
 async function startWorkerJob(job: ArticleAudioJob): Promise<void> {
-  const article = await prisma.article.findUnique({
-    where: { id: job.articleId },
-    select: {
-      id: true,
-      title: true,
-      url: true,
-      sentences: {
-        orderBy: { index: "asc" },
-        select: {
-          id: true,
-          index: true,
-          text: true,
-        },
-      },
-    },
+  const article = await db.query.articles.findFirst({
+    where: eq(schema.articles.id, job.articleId),
+    columns: { id: true, title: true, url: true },
   });
 
   if (!article) {
     throw new Error("Article not found");
   }
 
-  await prisma.articleAudio.updateMany({
-    where: { articleId: job.articleId },
-    data: {
+  const sentences = await db.query.sentences.findMany({
+    where: eq(schema.sentences.articleId, job.articleId),
+    orderBy: asc(schema.sentences.index),
+    columns: { id: true, index: true, text: true },
+  });
+
+  await db
+    .update(schema.articleAudio)
+    .set({
       status: "processing",
-      sentenceCount: article.sentences.length,
-      startedAt: new Date(),
+      sentenceCount: sentences.length,
+      startedAt: touch(),
       finishedAt: null,
       lastError: null,
-    },
-  });
+      updatedAt: touch(),
+    })
+    .where(eq(schema.articleAudio.articleId, job.articleId))
+    .run();
 
   const secret = process.env.SCRAPER_WORKER_SECRET;
   const headers: Record<string, string> = {
@@ -385,26 +463,51 @@ async function startWorkerJob(job: ArticleAudioJob): Promise<void> {
     headers.Authorization = `Bearer ${secret}`;
   }
 
-  const response = await fetch(workerUrl(), {
+  const body = JSON.stringify({
+    jobId: job.id,
+    articleId: article.id,
+    articleUrl: article.url,
+    title: article.title,
+    sentences,
+    callbackUrl: `${callbackBaseUrl()}/api/original-audio/ingest`,
+    callbackSecret: secret || null,
+    timeoutSeconds: job.timeoutSeconds,
+    coverageThreshold: getMinCoverage(),
+  });
+
+  if (process.env.ORIGINAL_AUDIO_WORKER_MODE === "callback") {
+    const response = await fetch(workerJobsUrl(), {
+      method: "POST",
+      headers,
+      body,
+      cache: "no-store",
+    });
+
+    const data = (await response.json().catch(() => null)) as { error?: string } | null;
+    if (!response.ok) {
+      throw new Error(data?.error || `Original-audio worker rejected job with ${response.status}`);
+    }
+    return;
+  }
+
+  const response = await fetch(workerProcessUrl(), {
     method: "POST",
     headers,
-    body: JSON.stringify({
-      jobId: job.id,
-      articleId: article.id,
-      articleUrl: article.url,
-      title: article.title,
-      sentences: article.sentences,
-      callbackUrl: `${callbackBaseUrl()}/api/original-audio/ingest`,
-      callbackSecret: secret || null,
-      timeoutSeconds: job.timeoutSeconds,
-      coverageThreshold: getMinCoverage(),
-    }),
+    body,
     cache: "no-store",
   });
 
-  const data = (await response.json().catch(() => null)) as { error?: string } | null;
+  const data = (await response.json().catch(() => null)) as (IngestArticleAudioInput & { error?: string }) | null;
   if (!response.ok) {
     throw new Error(data?.error || `Original-audio worker rejected job with ${response.status}`);
+  }
+  if (!data || data.jobId !== job.id || data.articleId !== article.id) {
+    throw new Error("Original-audio worker returned an invalid job payload");
+  }
+
+  const result = await ingestArticleAudioUpdate(data);
+  if (!result.job) {
+    throw new Error("Original-audio worker result did not match a queued job");
   }
 }
 
@@ -442,56 +545,64 @@ function normalizeClipStatus(status: unknown): SentenceAudioStatus {
 }
 
 async function markUnavailable(input: IngestArticleAudioInput): Promise<ArticleAudioJob | null> {
-  const job = await prisma.articleAudioJob.findUnique({ where: { id: input.jobId } });
+  const job = await db.query.articleAudioJobs.findFirst({ where: eq(schema.articleAudioJobs.id, input.jobId) });
   if (!job) {
     return null;
   }
 
   const message = input.errorMessage || "No accessible WSJ article audio found";
-  await prisma.$transaction([
-    prisma.articleAudioJob.update({
-      where: { id: job.id },
-      data: {
+  const now = touch();
+  db.transaction((tx) => {
+    tx.update(schema.articleAudioJobs)
+      .set({
         status: "succeeded",
         lockedAt: null,
         workerJobId: null,
         lastError: null,
-      },
-    }),
-    prisma.articleAudio.updateMany({
-      where: { articleId: input.articleId },
-      data: {
+        updatedAt: now,
+      })
+      .where(eq(schema.articleAudioJobs.id, job.id))
+      .run();
+    tx.update(schema.articleAudio)
+      .set({
         status: "unavailable",
         lastError: message,
-        finishedAt: new Date(),
-      },
-    }),
-    prisma.sentence.updateMany({
-      where: { articleId: input.articleId },
-      data: {
+        finishedAt: now,
+        updatedAt: now,
+      })
+      .where(eq(schema.articleAudio.articleId, input.articleId))
+      .run();
+    tx.update(schema.sentences)
+      .set({
         wsjAudioStatus: "unavailable",
-      },
-    }),
-  ]);
+      })
+      .where(eq(schema.sentences.articleId, input.articleId))
+      .run();
+  });
+  await recordAudioEvent({
+    scope: "audio",
+    entityType: "articleAudioJob",
+    entityId: job.id,
+    articleId: input.articleId,
+    jobId: job.id,
+    status: "unavailable",
+    message,
+  });
 
   return job;
 }
 
 async function markSucceeded(input: IngestArticleAudioInput): Promise<ArticleAudioJob | null> {
-  const job = await prisma.articleAudioJob.findUnique({ where: { id: input.jobId } });
+  const job = await db.query.articleAudioJobs.findFirst({ where: eq(schema.articleAudioJobs.id, input.jobId) });
   if (!job) {
     return null;
   }
 
-  const article = await prisma.article.findUnique({
-    where: { id: input.articleId },
-    select: {
-      sentences: {
-        select: { id: true },
-      },
-    },
+  const articleSentences = await db.query.sentences.findMany({
+    where: eq(schema.sentences.articleId, input.articleId),
+    columns: { id: true },
   });
-  const sentenceIds = new Set(article?.sentences.map((sentence) => sentence.id) || []);
+  const sentenceIds = new Set(articleSentences.map((sentence) => sentence.id));
   const readyClips = (input.clips || []).filter(
     (clip) => clip.sentenceId && sentenceIds.has(clip.sentenceId) && clip.audioUrl && normalizeClipStatus(clip.status) === "ready"
   );
@@ -505,10 +616,11 @@ async function markSucceeded(input: IngestArticleAudioInput): Promise<ArticleAud
     return job;
   }
 
-  await prisma.$transaction(async (tx) => {
-    await tx.articleAudio.upsert({
-      where: { articleId: input.articleId },
-      create: {
+  const now = touch();
+  db.transaction((tx) => {
+    tx.insert(schema.articleAudio)
+      .values({
+        id: createId("audio"),
         articleId: input.articleId,
         status: "ready",
         sourceUrl: input.sourceUrl || null,
@@ -519,9 +631,13 @@ async function markSucceeded(input: IngestArticleAudioInput): Promise<ArticleAud
         sentenceCount,
         clippedCount: readyClips.length,
         lastError: null,
-        finishedAt: new Date(),
-      },
-      update: {
+        finishedAt: now,
+        createdAt: now,
+        updatedAt: now,
+      })
+      .onConflictDoUpdate({
+        target: schema.articleAudio.articleId,
+        set: {
         status: "ready",
         sourceUrl: input.sourceUrl || null,
         sourceAudioUrl: input.sourceAudioUrl || null,
@@ -531,41 +647,58 @@ async function markSucceeded(input: IngestArticleAudioInput): Promise<ArticleAud
         sentenceCount,
         clippedCount: readyClips.length,
         lastError: null,
-        finishedAt: new Date(),
+          finishedAt: now,
+          updatedAt: now,
       },
-    });
+      })
+      .run();
 
-    await tx.articleAudioJob.update({
-      where: { id: job.id },
-      data: {
+    tx.update(schema.articleAudioJobs)
+      .set({
         status: "succeeded",
         lockedAt: null,
         workerJobId: null,
         lastError: null,
-      },
-    });
+        updatedAt: now,
+      })
+      .where(eq(schema.articleAudioJobs.id, job.id))
+      .run();
 
-    await tx.sentence.updateMany({
-      where: { articleId: input.articleId },
-      data: {
+    tx.update(schema.sentences)
+      .set({
         wsjAudioStatus: "unavailable",
         wsjAudioUrl: null,
         wsjAudioStartMs: null,
         wsjAudioEndMs: null,
-      },
-    });
+      })
+      .where(eq(schema.sentences.articleId, input.articleId))
+      .run();
 
     for (const clip of readyClips) {
-      await tx.sentence.update({
-        where: { id: clip.sentenceId },
-        data: {
+      tx.update(schema.sentences)
+        .set({
           wsjAudioStatus: "ready",
           wsjAudioUrl: clip.audioUrl || null,
           wsjAudioStartMs: typeof clip.startMs === "number" ? Math.trunc(clip.startMs) : null,
           wsjAudioEndMs: typeof clip.endMs === "number" ? Math.trunc(clip.endMs) : null,
-        },
-      });
+        })
+        .where(eq(schema.sentences.id, clip.sentenceId))
+        .run();
     }
+  });
+  await recordAudioEvent({
+    scope: "audio",
+    entityType: "articleAudioJob",
+    entityId: job.id,
+    articleId: input.articleId,
+    jobId: job.id,
+    status: "succeeded",
+    message: "Original audio job completed",
+    metadata: {
+      coverageRatio: effectiveCoverage,
+      clippedCount: readyClips.length,
+      sentenceCount,
+    },
   });
 
   return job;
@@ -574,38 +707,46 @@ async function markSucceeded(input: IngestArticleAudioInput): Promise<ArticleAud
 export async function ingestArticleAudioUpdate(input: IngestArticleAudioInput): Promise<{
   job: ArticleAudioJob | null;
 }> {
-  const job = await prisma.articleAudioJob.findUnique({ where: { id: input.jobId } });
+  const job = await db.query.articleAudioJobs.findFirst({ where: eq(schema.articleAudioJobs.id, input.jobId) });
   if (!job || job.articleId !== input.articleId) {
     return { job: null };
   }
 
   if (input.status === "running") {
-    await prisma.$transaction([
-      prisma.articleAudioJob.update({
-        where: { id: job.id },
-        data: {
+    const now = touch();
+    db.transaction((tx) => {
+      tx.update(schema.articleAudioJobs)
+        .set({
           status: "processing",
-          lockedAt: job.lockedAt || new Date(),
+          lockedAt: job.lockedAt || now,
           workerJobId: job.workerJobId || job.id,
           lastError: null,
-        },
-      }),
-      prisma.articleAudio.upsert({
-        where: { articleId: input.articleId },
-        create: {
+          updatedAt: now,
+        })
+        .where(eq(schema.articleAudioJobs.id, job.id))
+        .run();
+      tx.insert(schema.articleAudio)
+        .values({
+          id: createId("audio"),
           articleId: input.articleId,
           status: "processing",
-          startedAt: new Date(),
+          startedAt: now,
           lastError: null,
-        },
-        update: {
+          createdAt: now,
+          updatedAt: now,
+        })
+        .onConflictDoUpdate({
+          target: schema.articleAudio.articleId,
+          set: {
           status: "processing",
-          startedAt: new Date(),
+            startedAt: now,
           finishedAt: null,
           lastError: null,
+            updatedAt: now,
         },
-      }),
-    ]);
+        })
+        .run();
+    });
     return { job };
   }
 

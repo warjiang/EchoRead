@@ -1,4 +1,5 @@
-import { prisma } from "@/lib/db";
+import { desc } from "drizzle-orm";
+import { db, schema } from "@/lib/db";
 import { VocabularyMasteryButton } from "@/components/VocabularyActions";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
@@ -13,8 +14,8 @@ import { Separator } from "@/components/ui/separator";
 import { BookOpen, Check } from "lucide-react";
 
 export default async function VocabularyPage() {
-  const words = await prisma.vocabulary.findMany({
-    orderBy: { createdAt: "desc" },
+  const words = await db.query.vocabulary.findMany({
+    orderBy: desc(schema.vocabulary.createdAt),
   });
 
   const mastered = words.filter((w) => w.mastered);

@@ -21,6 +21,7 @@ This directory contains guidelines for frontend development. Fill in each file w
 | [Quality Guidelines](./quality-guidelines.md) | Code standards, forbidden patterns | To fill |
 | [Type Safety](./type-safety.md) | Type patterns, validation | To fill |
 | [Original Audio Contracts](./original-audio-contracts.md) | WSJ original-audio DB/API/worker/UI contracts | Active |
+| [WSJ Worker Pipeline Contracts](./wsj-worker-pipeline-contracts.md) | Decoupled scrape/material/audio queue worker contracts | Active |
 
 ---
 

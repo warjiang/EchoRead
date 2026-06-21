@@ -1,10 +1,11 @@
 import { NextResponse } from "next/server";
-import { prisma } from "@/lib/db";
+import { desc } from "drizzle-orm";
+import { db, schema } from "@/lib/db";
 
 export async function GET() {
-  const articles = await prisma.article.findMany({
-    orderBy: { publishedAt: "desc" },
-    select: {
+  const articles = await db.query.articles.findMany({
+    orderBy: desc(schema.articles.publishedAt),
+    columns: {
       id: true,
       title: true,
       category: true,
@@ -12,7 +13,7 @@ export async function GET() {
       publishedAt: true,
       summary: true,
     },
-    take: 20,
+    limit: 20,
   });
   return NextResponse.json(articles);
 }
