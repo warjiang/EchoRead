@@ -5,3 +5,36 @@
 
 ---
 
+
+
+## Session 1: WSJ original audio shadow reading
+
+**Date**: 2026-06-21
+**Task**: WSJ original audio shadow reading
+**Branch**: `fix/0621`
+
+### Summary
+
+Implemented WSJ original-audio processing for shadow reading, including worker audio discovery/download/alignment/clipping, Next.js queue/API/UI state, retry controls, and a text-similarity alignment fix for intro drift and narration differences.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `e4df48c` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
