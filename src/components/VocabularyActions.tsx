@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Check } from "lucide-react";
+import { Button } from "@/components/ui/button";
 
 interface Props {
   id: string;
@@ -31,14 +32,16 @@ export function VocabularyMasteryButton({ id, mastered }: Props) {
   };
 
   return (
-    <button
-      className="p-1.5 text-green-500 hover:bg-green-50 rounded disabled:opacity-50"
+    <Button
+      variant="ghost"
+      size="icon-sm"
       disabled={loading}
       onClick={updateMastery}
       title="Mark as mastered"
       type="button"
+      aria-label="Mark as mastered"
     >
-      <Check className="w-4 h-4" />
-    </button>
+      <Check aria-hidden="true" />
+    </Button>
   );
 }

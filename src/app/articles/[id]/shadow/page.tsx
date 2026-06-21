@@ -3,10 +3,20 @@
 import { useState, useEffect } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, Radio, Volume2 } from "lucide-react";
 import { generateArticleAudio } from "@/app/actions";
 import { SentencePlayer } from "@/components/SentencePlayer";
 import { AudioRecorder } from "@/components/AudioRecorder";
+import { Badge } from "@/components/ui/badge";
+import { Button, buttonVariants } from "@/components/ui/button";
+import {
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { Skeleton } from "@/components/ui/skeleton";
+import { cn } from "@/lib/utils";
 
 interface Sentence {
   id: string;
@@ -57,42 +67,69 @@ export default function ShadowReadingPage() {
 
   if (loading) {
     return (
-      <div className="max-w-3xl mx-auto px-4 py-8">
-        <p className="text-gray-500">Loading...</p>
+      <div className="container-page max-w-4xl py-8 sm:py-10">
+        <div className="flex flex-col gap-4">
+          <Skeleton className="h-5 w-32" />
+          <Skeleton className="h-10 w-4/5" />
+          <Skeleton className="h-96 w-full" />
+        </div>
       </div>
     );
   }
 
   if (!article) {
     return (
-      <div className="max-w-3xl mx-auto px-4 py-8">
-        <p className="text-gray-500">Article not found</p>
+      <div className="container-page max-w-4xl py-8 sm:py-10">
+        <Card>
+          <CardHeader>
+            <CardTitle>Article Not Found</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-sm text-muted-foreground">
+              The requested practice session is unavailable.
+            </p>
+          </CardContent>
+        </Card>
       </div>
     );
   }
 
   return (
-    <div className="max-w-3xl mx-auto px-4 py-8">
-      <Link href={`/articles/${articleId}`} className="flex items-center gap-1 text-sm text-gray-500 hover:text-blue-600 mb-4">
-        <ArrowLeft className="w-4 h-4" />
-        Back to Article
-      </Link>
-
-      <h1 className="text-xl font-bold text-gray-900 mb-2">{article.title}</h1>
-      <p className="text-sm text-gray-500 mb-6">Shadow Reading Practice • {article.sentences.length} sentences</p>
-
-      {/* Generate audio button */}
-      <div className="mb-4">
-        <button
-          onClick={generateAllAudio}
-          disabled={generatingAudio}
-          className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 text-sm disabled:opacity-50"
+    <div className="container-page max-w-4xl py-8 sm:py-10">
+      <div className="mb-8 border-b pb-6">
+        <Link
+          href={`/articles/${articleId}`}
+          className={cn(buttonVariants({ variant: "ghost", size: "sm" }), "mb-5")}
         >
-          {generatingAudio ? "Generating Audio..." : "🔊 Generate All Audio"}
-        </button>
+          <ArrowLeft data-icon="inline-start" aria-hidden="true" />
+          Back to Article
+        </Link>
+
+        <div className="flex flex-col gap-3">
+          <Badge variant="outline" className="w-fit">
+            Shadow Reading Practice
+          </Badge>
+          <h1 className="text-balance text-3xl font-semibold leading-tight tracking-normal text-foreground">
+            {article.title}
+          </h1>
+          <p className="text-sm text-muted-foreground">
+            {article.sentences.length} sentences
+          </p>
+        </div>
       </div>
 
-      {/* Sentence player */}
+      <div className="mb-6 flex justify-end">
+        <Button
+          type="button"
+          onClick={generateAllAudio}
+          disabled={generatingAudio}
+          variant="secondary"
+        >
+          <Volume2 data-icon="inline-start" aria-hidden="true" />
+          {generatingAudio ? "Generating Audio…" : "Generate All Audio"}
+        </Button>
+      </div>
+
       <div className="mb-6">
         <SentencePlayer
           sentences={article.sentences}
@@ -100,16 +137,26 @@ export default function ShadowReadingPage() {
         />
       </div>
 
-      {/* Recording section */}
-      <div className="border-t pt-4">
-        <h3 className="text-sm font-medium text-gray-700 mb-2">
-          🎤 Record Your Reading (Sentence {currentSentenceIndex + 1})
-        </h3>
-        <p className="text-xs text-gray-500 mb-3">
-          &quot;{article.sentences[currentSentenceIndex]?.text}&quot;
-        </p>
-        <AudioRecorder />
-      </div>
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between gap-3">
+            <CardTitle>Record Your Reading</CardTitle>
+            <Badge variant="secondary" className="font-mono">
+              {currentSentenceIndex + 1}
+            </Badge>
+          </div>
+        </CardHeader>
+        <CardContent className="flex flex-col gap-3">
+          <p className="text-sm leading-6 text-muted-foreground">
+            &quot;{article.sentences[currentSentenceIndex]?.text}&quot;
+          </p>
+          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+            <Radio className="size-3.5" aria-hidden="true" />
+            <span>Record once, listen back, then repeat the sentence.</span>
+          </div>
+          <AudioRecorder />
+        </CardContent>
+      </Card>
     </div>
   );
 }

@@ -1,8 +1,24 @@
 "use client";
 
+import type * as React from "react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { regenerateTrainingPack } from "@/app/actions";
 import type { TrainingMaterialPayload } from "@/lib/materials/types";
+import { AlertCircle, RefreshCw, Sparkles } from "lucide-react";
+
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import {
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { Separator } from "@/components/ui/separator";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 interface MaterialResponse {
   articleId: string;
@@ -40,6 +56,22 @@ function statusText(data: MaterialResponse | null): string {
       return "Ready";
     default:
       return "Unknown";
+  }
+}
+
+function statusVariant(
+  data: MaterialResponse | null
+): React.ComponentProps<typeof Badge>["variant"] {
+  switch (data?.trainingPackage?.status) {
+    case "failed":
+      return "destructive";
+    case "succeeded":
+      return "default";
+    case "pending":
+    case "running":
+      return "secondary";
+    default:
+      return "outline";
   }
 }
 
@@ -119,102 +151,193 @@ export function TrainingPackPanel({ articleId }: Props) {
   }, [payload]);
 
   if (loading) {
-    return <div className="rounded-xl border border-gray-200 bg-white p-4 text-sm text-gray-500">Loading training pack...</div>;
+    return (
+      <Card>
+        <CardHeader>
+          <Skeleton className="h-5 w-36" />
+          <Skeleton className="h-4 w-56" />
+        </CardHeader>
+        <CardContent className="flex flex-col gap-3">
+          <Skeleton className="h-8 w-full" />
+          <Skeleton className="h-24 w-full" />
+        </CardContent>
+      </Card>
+    );
   }
 
   return (
-    <aside className="rounded-xl border border-gray-200 bg-white p-4 space-y-4">
-      <div className="flex items-center justify-between">
-        <h2 className="text-base font-semibold text-gray-900">Training Pack</h2>
-        <span className="text-xs px-2 py-1 rounded bg-gray-100 text-gray-700">{statusText(data)}</span>
-      </div>
+    <aside>
+      <Card className="gap-4">
+        <CardHeader>
+          <div className="flex items-start justify-between gap-3">
+            <div className="flex min-w-0 flex-col gap-1">
+              <CardTitle>Training Pack</CardTitle>
+              <p className="text-sm leading-6 text-muted-foreground">
+                Shadow reading drills generated from this article.
+              </p>
+            </div>
+            <Badge variant={statusVariant(data)}>{statusText(data)}</Badge>
+          </div>
+        </CardHeader>
 
-      <p className="text-xs text-gray-500">Model-ready shadow reading materials generated from this article.</p>
+        <CardContent className="flex flex-col gap-4">
+          {(data?.trainingPackage?.errorMessage ||
+            data?.job?.lastError ||
+            error) && (
+            <Alert variant="destructive">
+              <AlertCircle aria-hidden="true" />
+              <AlertTitle>Generation issue</AlertTitle>
+              <AlertDescription>
+                {data?.trainingPackage?.errorMessage ||
+                  data?.job?.lastError ||
+                  error}
+              </AlertDescription>
+            </Alert>
+          )}
 
-      {data?.trainingPackage?.errorMessage && (
-        <p className="text-xs text-red-600">{data.trainingPackage.errorMessage}</p>
-      )}
-      {data?.job?.lastError && <p className="text-xs text-red-600">Job: {data.job.lastError}</p>}
-      {error && <p className="text-xs text-red-600">{error}</p>}
+          <Button
+            type="button"
+            onClick={regenerate}
+            disabled={actionLoading}
+            className="w-full"
+          >
+            <RefreshCw data-icon="inline-start" aria-hidden="true" />
+            {actionLoading ? "Queueing…" : "Regenerate Training Pack"}
+          </Button>
 
-      <button
-        onClick={regenerate}
-        disabled={actionLoading}
-        className="w-full rounded-lg bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
-      >
-        {actionLoading ? "Queueing..." : "Regenerate Training Pack"}
-      </button>
-
-      {!payload && <p className="text-sm text-gray-500">No package yet. Trigger regeneration to start.</p>}
-
-      {payload && (
-        <div className="space-y-4">
-          {summary && (
-            <div className="grid grid-cols-2 gap-2 text-xs text-gray-600">
-              <p>Chunked: {summary.chunked}</p>
-              <p>Dictation: {summary.dictation}</p>
-              <p>Cloze: {summary.cloze}</p>
-              <p>Retell: {summary.retell}</p>
-              <p>Keywords: {summary.keywords}</p>
-              <p>Version: {data?.trainingPackage?.version ?? 1}</p>
+          {!payload && (
+            <div className="rounded-lg border border-dashed p-4 text-sm leading-6 text-muted-foreground">
+              No package yet. Trigger regeneration to start.
             </div>
           )}
 
-          <section>
-            <h3 className="text-sm font-semibold text-gray-900 mb-2">Chunked Script</h3>
-            <ul className="space-y-2 text-xs text-gray-700 max-h-48 overflow-auto">
-              {payload.chunkedScript.slice(0, 8).map((item, index) => (
-                <li key={`${index}-${item.sentence.slice(0, 20)}`} className="rounded border border-gray-100 p-2">
-                  <p className="font-medium">{item.sentence}</p>
-                  <p className="mt-1 text-gray-600">{item.chunks.join(" / ")}</p>
-                  <p className="mt-1 text-gray-500">Stress: {item.stressWords.join(", ")}</p>
-                </li>
-              ))}
-            </ul>
-          </section>
+          {payload && (
+            <div className="flex flex-col gap-4">
+              {summary && (
+                <div className="grid grid-cols-2 gap-2 text-xs">
+                  {[
+                    ["Chunked", summary.chunked],
+                    ["Dictation", summary.dictation],
+                    ["Cloze", summary.cloze],
+                    ["Retell", summary.retell],
+                    ["Keywords", summary.keywords],
+                    ["Version", data?.trainingPackage?.version ?? 1],
+                  ].map(([label, value]) => (
+                    <div
+                      key={label}
+                      className="rounded-md bg-muted px-2.5 py-2"
+                    >
+                      <p className="text-muted-foreground">{label}</p>
+                      <p className="font-mono text-sm text-foreground">
+                        {value}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              )}
 
-          <section>
-            <h3 className="text-sm font-semibold text-gray-900 mb-2">Simplified Version (B1-B2)</h3>
-            <p className="text-xs text-gray-700 leading-5">{payload.simplifiedVersion.text}</p>
-          </section>
+              <Tabs defaultValue="script">
+                <TabsList className="grid w-full grid-cols-3">
+                  <TabsTrigger value="script">Script</TabsTrigger>
+                  <TabsTrigger value="simplify">B1-B2</TabsTrigger>
+                  <TabsTrigger value="drills">Drills</TabsTrigger>
+                </TabsList>
 
-          <section>
-            <h3 className="text-sm font-semibold text-gray-900 mb-2">Dictation</h3>
-            <ul className="space-y-1 text-xs text-gray-700 list-disc list-inside">
-              {payload.dictationExercises.slice(0, 5).map((item, index) => (
-                <li key={`${index}-${item.prompt.slice(0, 20)}`}>{item.prompt}</li>
-              ))}
-            </ul>
-          </section>
+                <TabsContent value="script" className="pt-2">
+                  <ScrollArea className="h-72 rounded-lg border">
+                    <div className="flex flex-col gap-2 p-3">
+                      {payload.chunkedScript.slice(0, 8).map((item, index) => (
+                        <div
+                          key={`${index}-${item.sentence.slice(0, 20)}`}
+                          className="rounded-md border p-3 text-xs leading-5"
+                        >
+                          <p className="font-medium text-foreground">
+                            {item.sentence}
+                          </p>
+                          <p className="mt-2 text-muted-foreground">
+                            {item.chunks.join(" / ")}
+                          </p>
+                          <p className="mt-2 font-mono text-muted-foreground">
+                            Stress: {item.stressWords.join(", ")}
+                          </p>
+                        </div>
+                      ))}
+                    </div>
+                  </ScrollArea>
+                </TabsContent>
 
-          <section>
-            <h3 className="text-sm font-semibold text-gray-900 mb-2">Cloze</h3>
-            <ul className="space-y-1 text-xs text-gray-700 list-disc list-inside">
-              {payload.clozeExercises.slice(0, 5).map((item, index) => (
-                <li key={`${index}-${item.prompt.slice(0, 20)}`}>{item.prompt}</li>
-              ))}
-            </ul>
-          </section>
+                <TabsContent value="simplify" className="pt-2">
+                  <div className="rounded-lg border p-3 text-sm leading-6 text-muted-foreground">
+                    {payload.simplifiedVersion.text}
+                  </div>
+                </TabsContent>
 
-          <section>
-            <h3 className="text-sm font-semibold text-gray-900 mb-2">Retell Outline</h3>
-            <ul className="space-y-1 text-xs text-gray-700 list-disc list-inside">
-              {payload.retellOutline.slice(0, 6).map((item, index) => (
-                <li key={`${index}-${item.point.slice(0, 20)}`}>{item.point}</li>
-              ))}
-            </ul>
-          </section>
+                <TabsContent value="drills" className="pt-2">
+                  <ScrollArea className="h-72 rounded-lg border">
+                    <div className="flex flex-col gap-4 p-3">
+                      <DrillList
+                        title="Dictation"
+                        items={payload.dictationExercises
+                          .slice(0, 5)
+                          .map((item) => item.prompt)}
+                      />
+                      <Separator />
+                      <DrillList
+                        title="Cloze"
+                        items={payload.clozeExercises
+                          .slice(0, 5)
+                          .map((item) => item.prompt)}
+                      />
+                      <Separator />
+                      <DrillList
+                        title="Retell Outline"
+                        items={payload.retellOutline
+                          .slice(0, 6)
+                          .map((item) => item.point)}
+                      />
+                      <Separator />
+                      <DrillList
+                        title="Keyword Prompts"
+                        items={payload.keywordPrompts
+                          .slice(0, 8)
+                          .map((item) => `${item.keyword}: ${item.prompt}`)}
+                      />
+                    </div>
+                  </ScrollArea>
+                </TabsContent>
+              </Tabs>
 
-          <section>
-            <h3 className="text-sm font-semibold text-gray-900 mb-2">Keyword Prompts</h3>
-            <ul className="space-y-1 text-xs text-gray-700 list-disc list-inside">
-              {payload.keywordPrompts.slice(0, 8).map((item, index) => (
-                <li key={`${index}-${item.keyword}`}>{item.keyword}: {item.prompt}</li>
-              ))}
-            </ul>
-          </section>
-        </div>
-      )}
+              <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                <Sparkles className="size-3.5" aria-hidden="true" />
+                <span>
+                  Materials update automatically while generation is running.
+                </span>
+              </div>
+            </div>
+          )}
+        </CardContent>
+      </Card>
     </aside>
+  );
+}
+
+function DrillList({ title, items }: { title: string; items: string[] }) {
+  return (
+    <section className="flex flex-col gap-2">
+      <h3 className="text-sm font-medium text-foreground">{title}</h3>
+      <ul className="flex flex-col gap-1.5 text-xs leading-5 text-muted-foreground">
+        {items.map((item, index) => (
+          <li
+            key={`${title}-${index}-${item.slice(0, 16)}`}
+            className="flex gap-2"
+          >
+            <span className="font-mono text-[11px] text-muted-foreground">
+              {String(index + 1).padStart(2, "0")}
+            </span>
+            <span>{item}</span>
+          </li>
+        ))}
+      </ul>
+    </section>
   );
 }

@@ -1,5 +1,19 @@
 import { prisma } from "@/lib/db";
 import { BarChart3, Clock, BookOpen } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+import {
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import {
+  Empty,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+} from "@/components/ui/empty";
 
 export default async function HistoryPage() {
   const history = await prisma.readingHistory.findMany({
@@ -13,58 +27,98 @@ export default async function HistoryPage() {
   const shadowCompleted = history.filter((h) => h.shadowDone).length;
 
   return (
-    <div className="max-w-3xl mx-auto px-4 py-8">
-      <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2 mb-6">
-        <BarChart3 className="w-6 h-6 text-purple-600" />
-        Learning History
-      </h1>
-
-      {/* Stats */}
-      <div className="grid grid-cols-3 gap-4 mb-8">
-        <div className="bg-white rounded-lg border p-4 text-center">
-          <BookOpen className="w-5 h-5 text-blue-500 mx-auto mb-1" />
-          <p className="text-2xl font-bold text-gray-900">{totalArticles}</p>
-          <p className="text-xs text-gray-500">Articles Read</p>
-        </div>
-        <div className="bg-white rounded-lg border p-4 text-center">
-          <Clock className="w-5 h-5 text-green-500 mx-auto mb-1" />
-          <p className="text-2xl font-bold text-gray-900">{Math.round(totalDuration / 60)}</p>
-          <p className="text-xs text-gray-500">Minutes Practiced</p>
-        </div>
-        <div className="bg-white rounded-lg border p-4 text-center">
-          <BarChart3 className="w-5 h-5 text-purple-500 mx-auto mb-1" />
-          <p className="text-2xl font-bold text-gray-900">{shadowCompleted}</p>
-          <p className="text-xs text-gray-500">Shadow Completed</p>
-        </div>
+    <div className="container-page max-w-5xl py-8 sm:py-10">
+      <div className="mb-8 flex flex-col gap-3 border-b pb-6">
+        <Badge variant="outline" className="w-fit">
+          Progress
+        </Badge>
+        <h1 className="text-3xl font-semibold leading-tight tracking-normal text-foreground">
+          Learning History
+        </h1>
+        <p className="text-sm leading-6 text-muted-foreground">
+          Track article sessions, practice time, and shadow reading completion.
+        </p>
       </div>
 
-      {/* History list */}
+      <div className="mb-8 grid gap-3 sm:grid-cols-3">
+        <StatCard icon={BookOpen} label="Articles Read" value={totalArticles} />
+        <StatCard
+          icon={Clock}
+          label="Minutes Practiced"
+          value={Math.round(totalDuration / 60)}
+        />
+        <StatCard
+          icon={BarChart3}
+          label="Shadow Completed"
+          value={shadowCompleted}
+        />
+      </div>
+
       {history.length === 0 ? (
-        <div className="text-center py-16">
-          <BarChart3 className="w-16 h-16 text-gray-300 mx-auto mb-4" />
-          <p className="text-gray-500">No reading history yet. Start reading articles to track your progress.</p>
-        </div>
+        <Empty className="min-h-[320px] border">
+          <EmptyHeader>
+            <EmptyMedia variant="icon">
+              <BarChart3 aria-hidden="true" />
+            </EmptyMedia>
+            <EmptyTitle>No Reading History Yet</EmptyTitle>
+            <EmptyDescription>
+              Start reading articles to track progress here.
+            </EmptyDescription>
+          </EmptyHeader>
+        </Empty>
       ) : (
-        <div className="space-y-3">
+        <div className="flex flex-col gap-2">
           {history.map((record) => (
-            <div key={record.id} className="flex items-center justify-between p-4 bg-white rounded-lg border">
-              <div className="flex-1">
-                <p className="font-medium text-gray-900 text-sm">{record.article.title}</p>
-                <p className="text-xs text-gray-500 mt-1">
-                  {new Date(record.createdAt).toLocaleDateString()} •{" "}
-                  {Math.round(record.duration / 60)} min •{" "}
+            <Card key={record.id} size="sm">
+              <CardContent className="flex items-start justify-between gap-4">
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-sm font-medium text-foreground">
+                  {record.article.title}
+                </p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {new Date(record.createdAt).toLocaleDateString()},{" "}
+                  {Math.round(record.duration / 60)} min,{" "}
                   {Math.round(record.progress * 100)}% complete
                 </p>
               </div>
               {record.shadowDone && (
-                <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded">
-                  Shadow ✓
-                </span>
+                <Badge variant="secondary" className="shrink-0">
+                  Shadow
+                </Badge>
               )}
-            </div>
+              </CardContent>
+            </Card>
           ))}
         </div>
       )}
     </div>
+  );
+}
+
+function StatCard({
+  icon: Icon,
+  label,
+  value,
+}: {
+  icon: typeof BookOpen;
+  label: string;
+  value: number;
+}) {
+  return (
+    <Card size="sm">
+      <CardHeader>
+        <div className="flex items-center justify-between gap-3">
+          <CardTitle className="text-sm">{label}</CardTitle>
+          <span className="flex size-8 items-center justify-center rounded-md bg-muted text-muted-foreground">
+            <Icon className="size-4" aria-hidden="true" />
+          </span>
+        </div>
+      </CardHeader>
+      <CardContent>
+        <p className="font-mono text-3xl font-semibold tracking-normal">
+          {value}
+        </p>
+      </CardContent>
+    </Card>
   );
 }

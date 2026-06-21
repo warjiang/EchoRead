@@ -1,6 +1,16 @@
 import { prisma } from "@/lib/db";
 import { ArticleCard } from "@/components/ArticleCard";
 import { triggerScrape } from "@/app/actions";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import {
+  Empty,
+  EmptyContent,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+} from "@/components/ui/empty";
 import { Newspaper, RefreshCw } from "lucide-react";
 
 export default async function HomePage() {
@@ -10,38 +20,52 @@ export default async function HomePage() {
   });
 
   return (
-    <div className="max-w-4xl mx-auto px-4 py-8">
-      <div className="flex items-center justify-between mb-8">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
-            <Newspaper className="w-6 h-6 text-blue-600" />
-            Today&apos;s Articles
-          </h1>
-          <p className="text-sm text-gray-500 mt-1">
-            Read WSJ articles and practice shadow reading
-          </p>
+    <div className="container-page py-8 sm:py-10">
+      <div className="mb-8 flex flex-col gap-4 border-b pb-6 sm:flex-row sm:items-end sm:justify-between">
+        <div className="flex max-w-2xl flex-col gap-3">
+          <Badge variant="outline" className="w-fit">
+            WSJ Practice Queue
+          </Badge>
+          <div className="flex flex-col gap-2">
+            <h1 className="text-balance text-3xl font-semibold leading-tight tracking-normal text-foreground sm:text-4xl">
+              Today&apos;s Articles
+            </h1>
+            <p className="text-sm leading-6 text-muted-foreground">
+              Read current business news, then turn each story into focused
+              shadow reading practice.
+            </p>
+          </div>
         </div>
         <form action={triggerScrape}>
-          <button
-            type="submit"
-            className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm"
-          >
-            <RefreshCw className="w-4 h-4" />
+          <Button type="submit" size="lg">
+            <RefreshCw data-icon="inline-start" aria-hidden="true" />
             Fetch New Articles
-          </button>
+          </Button>
         </form>
       </div>
 
       {articles.length === 0 ? (
-        <div className="text-center py-16">
-          <Newspaper className="w-16 h-16 text-gray-300 mx-auto mb-4" />
-          <h2 className="text-lg font-medium text-gray-600 mb-2">No articles yet</h2>
-          <p className="text-sm text-gray-500 mb-4">
-            Click &quot;Fetch New Articles&quot; to scrape the latest WSJ news
-          </p>
-        </div>
+        <Empty className="min-h-[360px] border">
+          <EmptyHeader>
+            <EmptyMedia variant="icon">
+              <Newspaper aria-hidden="true" />
+            </EmptyMedia>
+            <EmptyTitle>No Articles Yet</EmptyTitle>
+            <EmptyDescription>
+              Fetch new articles to build the reading queue.
+            </EmptyDescription>
+          </EmptyHeader>
+          <EmptyContent>
+            <form action={triggerScrape}>
+              <Button type="submit">
+                <RefreshCw data-icon="inline-start" aria-hidden="true" />
+                Fetch New Articles
+              </Button>
+            </form>
+          </EmptyContent>
+        </Empty>
       ) : (
-        <div className="grid gap-4">
+        <div className="grid gap-3">
           {articles.map((article) => (
             <ArticleCard
               key={article.id}

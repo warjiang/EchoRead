@@ -4,6 +4,11 @@ import { useState, useEffect, useRef } from "react";
 import { useAudioPlayer } from "@/hooks/useAudioPlayer";
 import { Play, Pause, SkipBack, SkipForward } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { Switch } from "@/components/ui/switch";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 
 interface Sentence {
   id: string;
@@ -21,7 +26,7 @@ export function SentencePlayer({ sentences, onSentenceChange }: SentencePlayerPr
   const [currentIndex, setCurrentIndex] = useState(0);
   const [isAutoPlay, setIsAutoPlay] = useState(false);
   const { isPlaying, playbackRate, play, pause, stop, setRate } = useAudioPlayer();
-  const sentenceRefs = useRef<(HTMLDivElement | null)[]>([]);
+  const sentenceRefs = useRef<(HTMLButtonElement | null)[]>([]);
 
   const currentSentence = sentences[currentIndex];
 
@@ -85,70 +90,104 @@ export function SentencePlayer({ sentences, onSentenceChange }: SentencePlayerPr
   }, [isPlaying, isAutoPlay]);
 
   return (
-    <div className="space-y-4">
-      {/* Controls */}
-      <div className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg sticky top-0 z-10">
-        <button onClick={goPrev} disabled={currentIndex === 0} className="p-2 rounded hover:bg-gray-200 disabled:opacity-30">
-          <SkipBack className="w-4 h-4" />
-        </button>
-        <button onClick={isPlaying ? pause : playCurrentSentence} className="p-2 rounded-full bg-blue-600 text-white hover:bg-blue-700">
-          {isPlaying ? <Pause className="w-5 h-5" /> : <Play className="w-5 h-5" />}
-        </button>
-        <button onClick={goNext} disabled={currentIndex === sentences.length - 1} className="p-2 rounded hover:bg-gray-200 disabled:opacity-30">
-          <SkipForward className="w-4 h-4" />
-        </button>
-
-        {/* Speed control */}
-        <div className="flex items-center gap-1 ml-4">
-          {[0.5, 0.75, 1, 1.25, 1.5].map((rate) => (
-            <button
-              key={rate}
-              onClick={() => setRate(rate)}
-              className={cn(
-                "px-2 py-1 text-xs rounded",
-                playbackRate === rate ? "bg-blue-600 text-white" : "bg-gray-200 text-gray-700 hover:bg-gray-300"
-              )}
-            >
-              {rate}x
-            </button>
-          ))}
+    <div className="flex flex-col gap-4">
+      <div className="sticky top-16 z-10 flex flex-wrap items-center gap-3 rounded-lg border bg-background p-3">
+        <div className="flex items-center gap-1">
+          <Button
+            type="button"
+            onClick={goPrev}
+            disabled={currentIndex === 0}
+            variant="ghost"
+            size="icon"
+            aria-label="Previous sentence"
+          >
+            <SkipBack aria-hidden="true" />
+          </Button>
+          <Button
+            type="button"
+            onClick={isPlaying ? pause : playCurrentSentence}
+            size="icon-lg"
+            aria-label={isPlaying ? "Pause sentence" : "Play sentence"}
+          >
+            {isPlaying ? (
+              <Pause aria-hidden="true" />
+            ) : (
+              <Play aria-hidden="true" />
+            )}
+          </Button>
+          <Button
+            type="button"
+            onClick={goNext}
+            disabled={currentIndex === sentences.length - 1}
+            variant="ghost"
+            size="icon"
+            aria-label="Next sentence"
+          >
+            <SkipForward aria-hidden="true" />
+          </Button>
         </div>
 
-        {/* Auto-play toggle */}
-        <label className="flex items-center gap-1 ml-auto text-sm cursor-pointer">
-          <input
-            type="checkbox"
+        <ToggleGroup
+          value={[String(playbackRate)]}
+          onValueChange={(value) => {
+            const nextRate = Number(value[0]);
+            if (Number.isFinite(nextRate) && nextRate > 0) {
+              setRate(nextRate);
+            }
+          }}
+          className="rounded-md bg-muted p-0.5"
+          spacing={0}
+          aria-label="Playback speed"
+        >
+          {[0.5, 0.75, 1, 1.25, 1.5].map((rate) => (
+            <ToggleGroupItem
+              key={rate}
+              value={String(rate)}
+              size="sm"
+              className="min-w-10"
+            >
+              {rate}x
+            </ToggleGroupItem>
+          ))}
+        </ToggleGroup>
+
+        <label className="ml-auto flex cursor-pointer items-center gap-2 text-sm text-muted-foreground">
+          <Switch
             checked={isAutoPlay}
-            onChange={(e) => setIsAutoPlay(e.target.checked)}
-            className="rounded"
+            onCheckedChange={(checked) => setIsAutoPlay(checked)}
+            aria-label="Toggle autoplay"
           />
           Auto
         </label>
 
-        <span className="text-xs text-gray-500">
+        <Badge variant="outline" className="font-mono">
           {currentIndex + 1}/{sentences.length}
-        </span>
+        </Badge>
       </div>
 
-      {/* Sentences display */}
-      <div className="space-y-2 max-h-96 overflow-y-auto p-2">
-        {sentences.map((sentence, index) => (
-          <div
-            key={sentence.id}
-            ref={(el) => { sentenceRefs.current[index] = el; }}
-            onClick={() => handleSentenceClick(index)}
-            className={cn(
-              "p-3 rounded-lg cursor-pointer transition-all text-sm leading-relaxed",
-              index === currentIndex
-                ? "bg-blue-50 border-l-4 border-blue-600 font-medium"
-                : "hover:bg-gray-50 border-l-4 border-transparent"
-            )}
-          >
-            <span className="text-gray-400 text-xs mr-2">{index + 1}</span>
-            {sentence.text}
-          </div>
-        ))}
-      </div>
+      <ScrollArea className="h-[28rem] rounded-lg border">
+        <div className="flex flex-col gap-2 p-2">
+          {sentences.map((sentence, index) => (
+            <button
+              key={sentence.id}
+              ref={(el) => { sentenceRefs.current[index] = el; }}
+              onClick={() => handleSentenceClick(index)}
+              type="button"
+              className={cn(
+                "rounded-md border p-3 text-left text-sm leading-7 transition-colors focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/50",
+                index === currentIndex
+                  ? "border-foreground bg-muted font-medium text-foreground"
+                  : "border-transparent text-muted-foreground hover:border-border hover:bg-muted/50 hover:text-foreground"
+              )}
+            >
+              <span className="mr-2 font-mono text-xs text-muted-foreground">
+                {String(index + 1).padStart(2, "0")}
+              </span>
+              {sentence.text}
+            </button>
+          ))}
+        </div>
+      </ScrollArea>
     </div>
   );
 }

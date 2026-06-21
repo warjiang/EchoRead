@@ -1,8 +1,12 @@
 import { prisma } from "@/lib/db";
 import { notFound } from "next/navigation";
 import Link from "next/link";
-import { ArrowLeft, Headphones } from "lucide-react";
+import { ArrowLeft, ExternalLink, Headphones } from "lucide-react";
 import { TrainingPackPanel } from "@/components/TrainingPackPanel";
+import { Badge } from "@/components/ui/badge";
+import { buttonVariants } from "@/components/ui/button";
+import { Separator } from "@/components/ui/separator";
+import { cn } from "@/lib/utils";
 
 interface Props {
   params: Promise<{ id: string }>;
@@ -23,62 +27,65 @@ export default async function ArticleDetailPage({ params }: Props) {
   const paragraphs = article.content.split("\n\n").filter(Boolean);
 
   return (
-    <div className="max-w-6xl mx-auto px-4 py-8">
-      <div className="grid gap-8 lg:grid-cols-[minmax(0,2fr)_minmax(320px,1fr)]">
-        <div>
-          <div className="mb-6">
+    <div className="container-page py-8 sm:py-10">
+      <div className="grid gap-8 lg:grid-cols-[minmax(0,1fr)_360px]">
+        <div className="min-w-0">
+          <div className="mb-8 border-b pb-6">
             <Link
               href="/"
-              className="flex items-center gap-1 text-sm text-gray-500 hover:text-blue-600 mb-4"
+              className="mb-5 inline-flex items-center gap-1.5 text-sm font-medium text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
             >
-              <ArrowLeft className="w-4 h-4" />
+              <ArrowLeft className="size-4" aria-hidden="true" />
               Back to Articles
             </Link>
 
-            <div className="flex items-center gap-2 mb-2">
+            <div className="mb-3 flex flex-wrap items-center gap-2">
               {article.category && (
-                <span className="text-xs font-medium text-blue-600 bg-blue-50 px-2 py-0.5 rounded">
-                  {article.category}
-                </span>
+                <Badge variant="outline">{article.category}</Badge>
               )}
-              <span className="text-xs text-gray-500">{article.publishedAt.toLocaleDateString()}</span>
+              <span className="text-xs text-muted-foreground">
+                {article.publishedAt.toLocaleDateString()}
+              </span>
             </div>
 
-            <h1 className="text-2xl font-bold text-gray-900 mb-4">{article.title}</h1>
+            <h1 className="max-w-3xl text-balance text-3xl font-semibold leading-tight tracking-normal text-foreground sm:text-4xl">
+              {article.title}
+            </h1>
 
             <Link
               href={`/articles/${id}/shadow`}
-              className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm"
+              className={cn(buttonVariants({ size: "lg" }), "mt-6")}
             >
-              <Headphones className="w-4 h-4" />
+              <Headphones data-icon="inline-start" aria-hidden="true" />
               Start Shadow Reading
             </Link>
           </div>
 
-          <article className="prose prose-gray max-w-none">
+          <article className="max-w-[72ch]">
             {paragraphs.map((paragraph, i) => (
-              <p key={i} className="text-gray-800 leading-relaxed mb-4">
+              <p key={i} className="mb-5 text-base leading-8 text-foreground">
                 {paragraph}
               </p>
             ))}
           </article>
 
-          <div className="mt-8 pt-4 border-t">
-            <p className="text-xs text-gray-400">
-              Source: {" "}
+          <Separator className="mt-8" />
+
+          <div className="mt-4 flex min-w-0 items-center gap-2 text-xs text-muted-foreground">
+            <ExternalLink className="size-3.5 shrink-0" aria-hidden="true" />
+            <span className="shrink-0">Source:</span>
               <a
                 href={article.url}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="hover:text-blue-600"
+              className="truncate hover:text-foreground focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
               >
                 {article.url}
               </a>
-            </p>
           </div>
         </div>
 
-        <div className="lg:sticky lg:top-6 h-fit">
+        <div className="h-fit lg:sticky lg:top-20">
           <TrainingPackPanel articleId={id} />
         </div>
       </div>
