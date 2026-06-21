@@ -12,6 +12,7 @@
     "test:original-audio": "tsx --test src/lib/original-audio/__tests__/queue.test.ts",
     "test:scraper": "tsx --test src/lib/scraper/__tests__/jobs.test.ts",
     "scrape": "tsx scripts/cron-scrape.ts",
+    "cleanup:scraped": "tsx scripts/cleanup-scraped-data.ts",
     "wsj:login": "tsx scripts/wsj-login.ts",
     "db:migrate": "prisma migrate dev",
     "db:studio": "prisma studio"

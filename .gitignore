@@ -49,6 +49,7 @@ yarn-error.log*
 # SQLite database
 prisma/dev.db
 prisma/dev.db-journal
+prisma/prisma/
 
 # Generated audio files
 public/audio/*.mp3
