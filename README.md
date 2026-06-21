@@ -46,7 +46,7 @@ WSJ collection runs through a self-hosted browser-use worker. The Next.js app no
 
 - `chrome`: optional self-hosted Chromium with CDP on Docker-internal port `9222`
 - `wsj-worker`: Python `browser-use[core]` service connected to `BROWSER_CDP_URL`, managed with `uv`
-- `app`: Next.js service that calls `wsj-worker`, stores articles, and queues material generation
+- `app`: Next.js service that creates scrape jobs, receives worker callbacks, stores articles, and queues material generation
 
 The Chrome profile is persisted at `./data/chrome-profile` when you use the bundled `chrome` service. Complete WSJ login once through the browser profile you expose to CDP, then subsequent collection jobs reuse that authenticated profile. This avoids Browser Use Cloud and keeps WSJ auth local to your deployment.
 
@@ -62,7 +62,8 @@ BROWSER_AGENT_BASE_URL=$OPENAI_BASE_URL
 BROWSER_AGENT_API_KEY=$OPENAI_API_KEY
 BROWSER_AGENT_RESPONSE_FORMAT=prompt_json
 BROWSER_CDP_URL=http://chrome:9222
-WSJ_WORKER_URL=http://wsj-worker:8000/scrape
+WSJ_WORKER_URL=http://wsj-worker:8000/jobs
+SCRAPER_CALLBACK_BASE_URL=http://app:3000
 ```
 
 Use only `BROWSER_CDP_URL` to choose the browser:
@@ -99,12 +100,30 @@ Manual worker checks:
 ```bash
 docker compose exec chrome curl -fsS http://localhost:9222/json/version
 curl -fsS http://localhost:8000/health
+
+# Start an async scrape job through the app. The response includes jobId.
+curl -fsS -X POST \
+  -H "Authorization: Bearer $SCRAPER_WORKER_SECRET" \
+  -H "Content-Type: application/json" \
+  -d '{"maxArticles": 2}' \
+  http://localhost:3000/api/scraper
+
+# Check job status.
+curl -fsS \
+  -H "Authorization: Bearer $SCRAPER_WORKER_SECRET" \
+  http://localhost:3000/api/scraper/jobs/<jobId>
+
+# Legacy synchronous worker check, useful only for debugging browser-use output.
 curl -fsS -X POST \
   -H "Authorization: Bearer $SCRAPER_WORKER_SECRET" \
   -H "Content-Type: application/json" \
   -d '{"maxArticles": 2}' \
   http://localhost:8000/scrape
 ```
+
+The app no longer waits for WSJ collection to finish. `POST /api/scraper` creates a `ScrapeJob`, asks `wsj-worker` to run in the background, and returns `202` immediately. The worker posts `running`, `succeeded`, or `failed` updates back to `POST /api/scraper/ingest` with the same `SCRAPER_WORKER_SECRET`.
+
+When running outside Docker, make sure `SCRAPER_CALLBACK_BASE_URL` points to an address the worker can reach. For local app + local worker, `http://localhost:3000` is fine. In Docker Compose, use `http://app:3000`.
 
 Worker dependency changes should be made in `worker/wsj-worker/pyproject.toml`, then locked with:
 
@@ -118,7 +137,7 @@ uv lock
 This project supports async generation of a high-quality shadow-reading training package per article.
 
 - Data models: `TrainingPackage` + `MaterialJob`
-- Queue trigger: new article ingestion (`POST /api/scraper`)
+- Queue trigger: new article ingestion from async WSJ scrape callbacks
 - Worker endpoint: `POST /api/materials/worker?limit=2`
 - Regenerate endpoint: `POST /api/articles/:id/materials/regenerate`
 - Query endpoint: `GET /api/articles/:id/materials`
@@ -157,7 +176,7 @@ Compose now starts:
 - `chrome`: dedicated CDP Chromium with persisted profile
 - `wsj-worker`: browser-use worker for WSJ collection
 - `app`: Next.js service (runs `prisma migrate deploy` on startup)
-- `bootstrap-scrape`: one-shot job that calls `/api/scraper` after app is healthy
+- `bootstrap-scrape`: one-shot job that creates an async scrape job after app is healthy
 
 ## One-Click Deploy (Prebuilt Image)
 

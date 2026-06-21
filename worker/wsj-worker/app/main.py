@@ -1,10 +1,18 @@
 import os
+import asyncio
+import json
+import logging
 from datetime import datetime, timezone
-from typing import Annotated
+from typing import Annotated, Literal
+from urllib.error import HTTPError, URLError
+from urllib.request import Request as UrlRequest, urlopen
 
 from browser_use import Agent, Browser, ChatOpenAI
-from fastapi import Depends, FastAPI, Header, HTTPException
+from fastapi import BackgroundTasks, Depends, FastAPI, Header, HTTPException
 from pydantic import BaseModel, Field, HttpUrl
+
+
+logger = logging.getLogger(__name__)
 
 
 class ScrapeRequest(BaseModel):
@@ -21,6 +29,25 @@ class ScrapedArticle(BaseModel):
 
 class ScrapeResult(BaseModel):
     articles: list[ScrapedArticle] = Field(default_factory=list)
+
+
+class ScrapeJobRequest(BaseModel):
+    jobId: str = Field(min_length=1)
+    maxArticles: int = Field(default=5, ge=1, le=10)
+    callbackUrl: HttpUrl
+    callbackSecret: str | None = None
+
+
+class ScrapeJobAccepted(BaseModel):
+    jobId: str
+    status: Literal["accepted"]
+
+
+class ScrapeJobCallback(BaseModel):
+    jobId: str
+    status: Literal["running", "succeeded", "failed"]
+    articles: list[ScrapedArticle] = Field(default_factory=list)
+    errorMessage: str | None = None
 
 
 app = FastAPI(title="EchoRead WSJ Worker")
@@ -52,8 +79,7 @@ async def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
-@app.post("/scrape", dependencies=[Depends(require_secret)])
-async def scrape(request: ScrapeRequest) -> ScrapeResult:
+async def collect_articles(max_articles: int) -> ScrapeResult:
     cdp_url = os.environ.get("BROWSER_CDP_URL", "http://chrome:9222")
     model = os.environ.get("BROWSER_AGENT_MODEL", "gpt-4.1-mini")
     api_key = os.environ.get("BROWSER_AGENT_API_KEY") or os.environ.get("OPENAI_API_KEY")
@@ -66,7 +92,7 @@ async def scrape(request: ScrapeRequest) -> ScrapeResult:
     task = f"""
 You are collecting WSJ articles for an English shadow-reading app.
 
-Use the already-authenticated browser profile. Go to https://www.wsj.com/ and collect up to {request.maxArticles} recent article pages.
+Use the already-authenticated browser profile. Go to https://www.wsj.com/ and collect up to {max_articles} recent article pages.
 
 For each article:
 - open the real WSJ article page
@@ -115,4 +141,77 @@ Return only structured output matching the schema.
             )
         )
 
-    return ScrapeResult(articles=articles[: request.maxArticles])
+    return ScrapeResult(articles=articles[: max_articles])
+
+
+async def post_job_callback(request: ScrapeJobRequest, callback: ScrapeJobCallback) -> None:
+    payload = json.dumps(callback.model_dump(mode="json", exclude_none=True)).encode("utf-8")
+    headers = {
+        "Content-Type": "application/json",
+    }
+    if request.callbackSecret:
+        headers["Authorization"] = f"Bearer {request.callbackSecret}"
+
+    url_request = UrlRequest(
+        str(request.callbackUrl),
+        data=payload,
+        headers=headers,
+        method="POST",
+    )
+
+    def send() -> None:
+        with urlopen(url_request, timeout=30) as response:
+            if response.status >= 400:
+                raise HTTPError(
+                    str(request.callbackUrl),
+                    response.status,
+                    response.reason,
+                    response.headers,
+                    response,
+                )
+
+    try:
+        await asyncio.to_thread(send)
+    except (HTTPError, URLError, TimeoutError, OSError) as error:
+        logger.exception("Failed to post scrape job callback for %s: %s", request.jobId, error)
+
+
+async def run_scrape_job(request: ScrapeJobRequest) -> None:
+    await post_job_callback(
+        request,
+        ScrapeJobCallback(jobId=request.jobId, status="running"),
+    )
+
+    try:
+        result = await collect_articles(request.maxArticles)
+    except Exception as error:
+        logger.exception("Scrape job %s failed", request.jobId)
+        await post_job_callback(
+            request,
+            ScrapeJobCallback(
+                jobId=request.jobId,
+                status="failed",
+                errorMessage=str(error)[:1500],
+            ),
+        )
+        return
+
+    await post_job_callback(
+        request,
+        ScrapeJobCallback(
+            jobId=request.jobId,
+            status="succeeded",
+            articles=result.articles,
+        ),
+    )
+
+
+@app.post("/jobs", dependencies=[Depends(require_secret)], status_code=202)
+async def create_job(request: ScrapeJobRequest, background_tasks: BackgroundTasks) -> ScrapeJobAccepted:
+    background_tasks.add_task(run_scrape_job, request)
+    return ScrapeJobAccepted(jobId=request.jobId, status="accepted")
+
+
+@app.post("/scrape", dependencies=[Depends(require_secret)])
+async def scrape(request: ScrapeRequest) -> ScrapeResult:
+    return await collect_articles(request.maxArticles)

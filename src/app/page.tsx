@@ -3,6 +3,7 @@ import { ArticleCard } from "@/components/ArticleCard";
 import { triggerScrape } from "@/app/actions";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import {
   Empty,
   EmptyContent,
@@ -13,11 +14,20 @@ import {
 } from "@/components/ui/empty";
 import { Newspaper, RefreshCw } from "lucide-react";
 
+async function getLatestScrapeJob() {
+  return prisma.scrapeJob.findFirst({
+    orderBy: { createdAt: "desc" },
+  }).catch(() => null);
+}
+
 export default async function HomePage() {
-  const articles = await prisma.article.findMany({
-    orderBy: { publishedAt: "desc" },
-    take: 20,
-  });
+  const [articles, latestScrapeJob] = await Promise.all([
+    prisma.article.findMany({
+      orderBy: { publishedAt: "desc" },
+      take: 20,
+    }),
+    getLatestScrapeJob(),
+  ]);
 
   return (
     <div className="container-page py-8 sm:py-10">
@@ -43,6 +53,19 @@ export default async function HomePage() {
           </Button>
         </form>
       </div>
+
+      {latestScrapeJob && latestScrapeJob.status !== "succeeded" && (
+        <Alert
+          variant={latestScrapeJob.status === "failed" ? "destructive" : "default"}
+          className="mb-6"
+        >
+          <AlertTitle>Scrape job {latestScrapeJob.status}</AlertTitle>
+          <AlertDescription>
+            {latestScrapeJob.errorMessage ||
+              `Job ${latestScrapeJob.id} is collecting up to ${latestScrapeJob.maxArticles} articles.`}
+          </AlertDescription>
+        </Alert>
+      )}
 
       {articles.length === 0 ? (
         <Empty className="min-h-[360px] border">

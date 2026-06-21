@@ -1,67 +1,44 @@
-import { after, NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/db";
+import { NextRequest, NextResponse } from "next/server";
+import { Prisma } from "@prisma/client";
 import { isAuthorizedByBearer } from "@/lib/api-auth";
-import { scrapeWSJArticlesWithWorker } from "@/lib/scraper/worker";
-import { splitIntoSentences } from "@/lib/nlp/sentence-split";
-import { enqueueMaterialJob, processMaterialJobs } from "@/lib/materials/queue";
+import {
+  createAndStartScrapeJob,
+  normalizeMaxArticles,
+  toScrapeJobApi,
+} from "@/lib/scraper/worker";
 
 async function runScrape(request: NextRequest) {
   if (!isAuthorizedByBearer(request, "SCRAPER_WORKER_SECRET")) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
+  const body = (await request.json().catch(() => ({}))) as { maxArticles?: unknown };
+  const maxArticles = normalizeMaxArticles(body.maxArticles);
+  let result: Awaited<ReturnType<typeof createAndStartScrapeJob>>;
   try {
-    const articles = await scrapeWSJArticlesWithWorker(5);
-    const created = [];
-
-    for (const article of articles) {
-      const existing = await prisma.article.findUnique({
-        where: { url: article.url },
-      });
-      if (existing) continue;
-
-      const sentences = splitIntoSentences(article.content);
-
-      const dbArticle = await prisma.article.create({
-        data: {
-          title: article.title,
-          url: article.url,
-          content: article.content,
-          category: article.category,
-          publishedAt: article.publishedAt,
-          sentences: {
-            create: sentences.map((text, index) => ({
-              text,
-              index,
-            })),
-          },
-        },
-      });
-      created.push(dbArticle);
-      await enqueueMaterialJob(dbArticle.id);
-    }
-
-    if (created.length > 0) {
-      after(async () => {
-        try {
-          await processMaterialJobs(Math.min(created.length, 3));
-        } catch (error) {
-          console.error("Background material worker failed:", error);
-        }
-      });
-    }
-
-    return NextResponse.json({
-      message: `Scraped ${created.length} new articles`,
-      articles: created,
-    });
+    result = await createAndStartScrapeJob(maxArticles);
   } catch (error) {
-    console.error("Scraper error:", error);
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2021") {
+      return NextResponse.json(
+        { error: "Database migrations are not applied. Run `prisma migrate deploy` before scraping." },
+        { status: 500 }
+      );
+    }
+    throw error;
+  }
+  const job = toScrapeJobApi(result.job);
+
+  if (!result.accepted) {
     return NextResponse.json(
-      { error: "Failed to scrape articles" },
-      { status: 500 }
+      {
+        ...job,
+        error: result.error || "Failed to start WSJ scrape job",
+      },
+      { status: 202 }
     );
   }
+
+  return NextResponse.json(job, { status: 202 });
 }
 
 export async function POST(request: NextRequest) {

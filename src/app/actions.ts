@@ -20,7 +20,8 @@ export async function triggerScrape() {
   });
 
   if (!response.ok) {
-    throw new Error("Failed to fetch new articles");
+    const data = (await response.json().catch(() => null)) as { error?: string } | null;
+    throw new Error(data?.error || "Failed to create article scrape job");
   }
 
   revalidatePath("/");

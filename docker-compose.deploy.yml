@@ -49,7 +49,8 @@ services:
       - WSJ_EMAIL=${WSJ_EMAIL}
       - WSJ_PASSWORD=${WSJ_PASSWORD}
       - WSJ_STORAGE_PATH=/app/data/.wsj-auth.json
-      - WSJ_WORKER_URL=http://wsj-worker:8000/scrape
+      - WSJ_WORKER_URL=http://wsj-worker:8000/jobs
+      - SCRAPER_CALLBACK_BASE_URL=http://app:3000
       - SCRAPER_WORKER_SECRET=${SCRAPER_WORKER_SECRET:-}
       - MATERIAL_WORKER_SECRET=${MATERIAL_WORKER_SECRET:-}
       - TTS_PROVIDER=${TTS_PROVIDER:-edge}
@@ -81,6 +82,6 @@ services:
       [
         "sh",
         "-c",
-        "echo 'Triggering initial scrape...' && curl -fsS -X POST -H \"Authorization: Bearer ${SCRAPER_WORKER_SECRET:-}\" http://app:3000/api/scraper && echo 'Initial scrape completed.'",
+        "echo 'Creating initial scrape job...' && curl -fsS -X POST -H \"Authorization: Bearer ${SCRAPER_WORKER_SECRET:-}\" http://app:3000/api/scraper && echo 'Initial scrape job created.'",
       ]
     restart: "no"

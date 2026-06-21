@@ -1,58 +1,32 @@
 /**
- * Cron script to scrape WSJ articles daily.
+ * Cron script to start an async WSJ scrape job.
  * Run with: npx tsx scripts/cron-scrape.ts
  * Or set up as a cron job: 0 8 * * * cd /path/to/project && npx tsx scripts/cron-scrape.ts
  */
 
-import { PrismaClient } from "@prisma/client";
-import { enqueueMaterialJob } from "../src/lib/materials/queue";
-import { scrapeWSJArticlesWithWorker } from "../src/lib/scraper/worker";
-import { splitIntoSentences } from "../src/lib/nlp/sentence-split";
-
-const prisma = new PrismaClient();
+import { prisma } from "../src/lib/db";
+import {
+  createAndStartScrapeJob,
+  normalizeMaxArticles,
+  toScrapeJobApi,
+} from "../src/lib/scraper/worker";
 
 async function main() {
-  console.log(`[${new Date().toISOString()}] Starting WSJ article scrape...`);
+  const maxArticles = normalizeMaxArticles(Number(process.env.WSJ_MAX_ARTICLES || 5));
+  console.log(`[${new Date().toISOString()}] Starting async WSJ scrape job...`);
 
   try {
-    const articles = await scrapeWSJArticlesWithWorker(5);
-    console.log(`Found ${articles.length} articles`);
+    const result = await createAndStartScrapeJob(maxArticles);
+    console.log(JSON.stringify(toScrapeJobApi(result.job), null, 2));
 
-    let created = 0;
-    for (const article of articles) {
-      const existing = await prisma.article.findUnique({
-        where: { url: article.url },
-      });
-      if (existing) {
-        console.log(`  Skipping (exists): ${article.title.slice(0, 50)}...`);
-        continue;
-      }
-
-      const sentences = splitIntoSentences(article.content);
-
-      const dbArticle = await prisma.article.create({
-        data: {
-          title: article.title,
-          url: article.url,
-          content: article.content,
-          category: article.category,
-          publishedAt: article.publishedAt,
-          sentences: {
-            create: sentences.map((text, index) => ({
-              text,
-              index,
-            })),
-          },
-        },
-      });
-      await enqueueMaterialJob(dbArticle.id);
-      created++;
-      console.log(`  Created: ${article.title.slice(0, 50)}... (${sentences.length} sentences)`);
+    if (!result.accepted) {
+      console.error(`Worker rejected scrape job: ${result.error || "unknown error"}`);
+      process.exit(1);
     }
 
-    console.log(`Done! Created ${created} new articles.`);
+    console.log("Scrape job accepted. Check /api/scraper/jobs/:id for status.");
   } catch (error) {
-    console.error("Scrape failed:", error);
+    console.error("Failed to start scrape job:", error);
     process.exit(1);
   } finally {
     await prisma.$disconnect();
