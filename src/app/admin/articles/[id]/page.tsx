@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { notFound, redirect } from "next/navigation";
+import { notFound } from "next/navigation";
 import { ArrowLeft, FileText, Headphones, Trash2 } from "lucide-react";
 import {
   deleteArticleAction,
@@ -9,7 +9,7 @@ import {
   retryOriginalAudioAction,
   updateArticleAction,
 } from "@/app/admin/actions";
-import { hasAdminSession } from "@/lib/admin/auth";
+import { getAdminPageUser } from "@/lib/admin/auth";
 import { getAdminArticle } from "@/lib/admin/service";
 import { deserializeTrainingPayload } from "@/lib/materials/persistence";
 import { Badge } from "@/components/ui/badge";
@@ -45,11 +45,8 @@ export default async function AdminArticlePage({
 }: {
   params: Promise<{ id: string }>;
 }) {
-  if (!(await hasAdminSession())) {
-    redirect("/admin/login");
-  }
-
   const { id } = await params;
+  await getAdminPageUser(`/admin/articles/${id}`);
   const article = await getAdminArticle(id);
   if (!article) {
     notFound();

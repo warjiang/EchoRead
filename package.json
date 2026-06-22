@@ -8,6 +8,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
+    "test:auth": "tsx --test src/lib/auth/__tests__/*.test.ts",
     "test:db": "tsx --test src/db/__tests__/drizzle-smoke.test.ts",
     "test:materials": "tsx --test src/lib/materials/__tests__/*.test.ts",
     "test:original-audio": "tsx --test src/lib/original-audio/__tests__/queue.test.ts",

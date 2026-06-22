@@ -1,12 +1,25 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { redirect } from "next/navigation";
+import { getCurrentUser } from "@/lib/auth/session";
+
+async function requireAdminAction() {
+  const user = await getCurrentUser();
+  if (!user) {
+    redirect("/login");
+  }
+  if (!user.canAdmin) {
+    redirect("/");
+  }
+}
 
 function appBaseUrl(): string {
   return process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
 }
 
 export async function triggerScrape() {
+  await requireAdminAction();
   const headers: Record<string, string> = {};
   const secret = process.env.SCRAPER_WORKER_SECRET;
   if (secret) {
@@ -28,6 +41,7 @@ export async function triggerScrape() {
 }
 
 export async function regenerateTrainingPack(articleId: string) {
+  await requireAdminAction();
   const headers: Record<string, string> = {};
   const secret = process.env.MATERIAL_WORKER_SECRET;
   if (secret) {
@@ -48,6 +62,7 @@ export async function regenerateTrainingPack(articleId: string) {
 }
 
 export async function generateArticleAudio(articleId: string) {
+  await requireAdminAction();
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
   };
@@ -71,6 +86,7 @@ export async function generateArticleAudio(articleId: string) {
 }
 
 export async function retryOriginalArticleAudio(articleId: string, formData: FormData) {
+  await requireAdminAction();
   const timeoutSeconds = Number(formData.get("timeoutSeconds") || 300);
   const headers: Record<string, string> = {
     "Content-Type": "application/json",

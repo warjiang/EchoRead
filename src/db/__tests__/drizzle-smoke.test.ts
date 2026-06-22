@@ -61,6 +61,59 @@ test("drizzle sqlite schema supports core pipeline contracts", async () => {
       text: "First sentence.",
     });
 
+    const userId = id("user");
+    const otherUserId = id("user");
+    await db.insert(schema.users).values({
+      id: userId,
+      email: "reader@example.com",
+      passwordHash: "scrypt$salt$hash",
+      createdAt: now,
+      updatedAt: now,
+    });
+    await db.insert(schema.users).values({
+      id: otherUserId,
+      email: "other@example.com",
+      passwordHash: "scrypt$salt$hash",
+      createdAt: now,
+      updatedAt: now,
+    });
+    await db.insert(schema.authSessions).values({
+      id: id("session"),
+      userId,
+      tokenHash: "session-token-hash",
+      expiresAt: later,
+      createdAt: now,
+      updatedAt: now,
+    });
+    await db.insert(schema.vocabulary).values({
+      id: id("vocab"),
+      userId,
+      word: "market",
+      articleId,
+      createdAt: now,
+    });
+    await db.insert(schema.vocabulary).values({
+      id: id("vocab"),
+      userId: otherUserId,
+      word: "market",
+      articleId,
+      createdAt: now,
+    });
+    const userWords = await db.query.vocabulary.findMany({
+      where: eq(schema.vocabulary.userId, userId),
+    });
+    assert.equal(userWords.length, 1);
+    assert.equal(userWords[0]?.word, "market");
+    await db.insert(schema.readingHistory).values({
+      id: id("history"),
+      userId,
+      articleId,
+      progress: 0.5,
+      shadowDone: false,
+      duration: 120,
+      createdAt: now,
+    });
+
     const scrapeJobId = id("scrape");
     await db.insert(schema.scrapeJobs).values({
       id: scrapeJobId,

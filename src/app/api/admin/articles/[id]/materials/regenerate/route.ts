@@ -1,14 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
-import { isAdminRequest } from "@/lib/admin/auth";
+import { adminAuthErrorResponse, authorizeAdminRequest } from "@/lib/admin/auth";
 import { regenerateAdminMaterial } from "@/lib/admin/service";
 
 export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  if (!isAdminRequest(request)) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const auth = await authorizeAdminRequest(request);
+  if (!auth.ok) return adminAuthErrorResponse(auth);
 
   const { id } = await params;
   await regenerateAdminMaterial(id);

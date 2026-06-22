@@ -1,11 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
-import { isAdminRequest } from "@/lib/admin/auth";
+import { adminAuthErrorResponse, authorizeAdminRequest } from "@/lib/admin/auth";
 import { listAdminJobs } from "@/lib/admin/service";
 
 export async function GET(request: NextRequest) {
-  if (!isAdminRequest(request)) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const auth = await authorizeAdminRequest(request);
+  if (!auth.ok) return adminAuthErrorResponse(auth);
 
   return NextResponse.json(
     await listAdminJobs({

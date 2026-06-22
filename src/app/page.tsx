@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { desc } from "drizzle-orm";
 import { db, schema } from "@/lib/db";
+import { getCurrentUser } from "@/lib/auth/session";
 import { ArticleCard } from "@/components/ArticleCard";
 import { triggerScrape } from "@/app/actions";
 import { Badge } from "@/components/ui/badge";
@@ -31,13 +32,15 @@ async function getLatestScrapeJob() {
 }
 
 export default async function HomePage() {
-  const [articles, latestScrapeJob] = await Promise.all([
+  const [articles, latestScrapeJob, user] = await Promise.all([
     db.query.articles.findMany({
       orderBy: desc(schema.articles.publishedAt),
       limit: 20,
     }),
     getLatestScrapeJob(),
+    getCurrentUser(),
   ]);
+  const canAdmin = Boolean(user?.canAdmin);
 
   return (
     <div className="container-page py-8 sm:py-10">
@@ -56,12 +59,14 @@ export default async function HomePage() {
             </p>
           </div>
         </div>
-        <form action={triggerScrape}>
-          <Button type="submit" size="lg">
-            <RefreshCw data-icon="inline-start" aria-hidden="true" />
-            Fetch New Articles
-          </Button>
-        </form>
+        {canAdmin && (
+          <form action={triggerScrape}>
+            <Button type="submit" size="lg">
+              <RefreshCw data-icon="inline-start" aria-hidden="true" />
+              Fetch New Articles
+            </Button>
+          </form>
+        )}
       </div>
 
       {latestScrapeJob && (
@@ -92,14 +97,16 @@ export default async function HomePage() {
               Fetch new articles to build the reading queue.
             </EmptyDescription>
           </EmptyHeader>
-          <EmptyContent>
-            <form action={triggerScrape}>
-              <Button type="submit">
-                <RefreshCw data-icon="inline-start" aria-hidden="true" />
-                Fetch New Articles
-              </Button>
-            </form>
-          </EmptyContent>
+          {canAdmin && (
+            <EmptyContent>
+              <form action={triggerScrape}>
+                <Button type="submit">
+                  <RefreshCw data-icon="inline-start" aria-hidden="true" />
+                  Fetch New Articles
+                </Button>
+              </form>
+            </EmptyContent>
+          )}
         </Empty>
       ) : (
         <div className="grid gap-3">

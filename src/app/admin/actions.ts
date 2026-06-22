@@ -1,16 +1,9 @@
 "use server";
 
-import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
-import {
-  adminCookieName,
-  adminSessionMaxAgeSeconds,
-  createAdminSessionToken,
-  hasAdminSession,
-  isAdminEnabled,
-  verifyAdminSecret,
-} from "@/lib/admin/auth";
+import { logoutAction } from "@/app/auth/actions";
+import { getCurrentUser } from "@/lib/auth/session";
 import {
   deleteAdminArticle,
   isAdminJobType,
@@ -30,36 +23,16 @@ import { processArticleAudioJobs } from "@/lib/original-audio/queue";
 import { processScrapeJobs } from "@/lib/scraper/worker";
 
 async function requireAdmin() {
-  if (!(await hasAdminSession())) {
-    redirect("/admin/login");
+  const user = await getCurrentUser();
+  if (!user) {
+    redirect("/login?next=/admin");
+  }
+  if (!user.canAdmin) {
+    redirect("/");
   }
 }
 
-export async function loginAdmin(_previousState: { error?: string } | null, formData: FormData) {
-  if (!isAdminEnabled()) {
-    return { error: "Admin is not enabled. Set ADMIN_SECRET in production." };
-  }
-
-  if (!verifyAdminSecret(formData.get("secret"))) {
-    return { error: "Invalid admin secret" };
-  }
-
-  const store = await cookies();
-  store.set(adminCookieName(), createAdminSessionToken(), {
-    httpOnly: true,
-    sameSite: "lax",
-    secure: process.env.NODE_ENV === "production",
-    path: "/",
-    maxAge: adminSessionMaxAgeSeconds(),
-  });
-  redirect("/admin");
-}
-
-export async function logoutAdmin() {
-  const store = await cookies();
-  store.delete(adminCookieName());
-  redirect("/admin/login");
-}
+export const logoutAdmin = logoutAction;
 
 export async function queueScrapeAction(formData: FormData) {
   await requireAdmin();

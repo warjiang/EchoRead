@@ -41,6 +41,7 @@ interface MaterialResponse {
 
 interface Props {
   articleId: string;
+  canAdmin?: boolean;
 }
 
 function statusText(data: MaterialResponse | null): string {
@@ -75,7 +76,7 @@ function statusVariant(
   }
 }
 
-export function TrainingPackPanel({ articleId }: Props) {
+export function TrainingPackPanel({ articleId, canAdmin = false }: Props) {
   const [data, setData] = useState<MaterialResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState(false);
@@ -195,19 +196,21 @@ export function TrainingPackPanel({ articleId }: Props) {
             </Alert>
           )}
 
-          <Button
-            type="button"
-            onClick={regenerate}
-            disabled={actionLoading}
-            className="w-full"
-          >
-            <RefreshCw data-icon="inline-start" aria-hidden="true" />
-            {actionLoading ? "Queueing…" : "Regenerate Training Pack"}
-          </Button>
+          {canAdmin && (
+            <Button
+              type="button"
+              onClick={regenerate}
+              disabled={actionLoading}
+              className="w-full"
+            >
+              <RefreshCw data-icon="inline-start" aria-hidden="true" />
+              {actionLoading ? "Queueing…" : "Regenerate Training Pack"}
+            </Button>
+          )}
 
           {!payload && (
             <div className="rounded-lg border border-dashed p-4 text-sm leading-6 text-muted-foreground">
-              No package yet. Trigger regeneration to start.
+              No package yet.
             </div>
           )}
 

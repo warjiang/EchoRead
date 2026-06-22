@@ -12,6 +12,7 @@ import { Button } from "@/components/ui/button";
 import { buttonVariants } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { serializeArticleAudio } from "@/lib/original-audio/queue";
+import { getCurrentUser } from "@/lib/auth/session";
 import { cn } from "@/lib/utils";
 
 interface Props {
@@ -51,10 +52,12 @@ export default async function ArticleDetailPage({ params }: Props) {
   });
 
   if (!article) notFound();
-  const [originalAudio, originalAudioJob] = await Promise.all([
+  const [originalAudio, originalAudioJob, user] = await Promise.all([
     db.query.articleAudio.findFirst({ where: eq(schema.articleAudio.articleId, id) }),
     db.query.articleAudioJobs.findFirst({ where: eq(schema.articleAudioJobs.articleId, id) }),
+    getCurrentUser(),
   ]);
+  const canAdmin = Boolean(user?.canAdmin);
 
   const paragraphs = article.content.split("\n\n").filter(Boolean);
   const originalAudioState = serializeArticleAudio(originalAudio, originalAudioJob);
@@ -134,7 +137,7 @@ export default async function ArticleDetailPage({ params }: Props) {
                 </AlertDescription>
               </Alert>
 
-              {originalAudioState.status === "failed" && (
+              {originalAudioState.status === "failed" && canAdmin && (
                 <form action={retryAction} className="flex flex-wrap items-end gap-2">
                   <label className="flex flex-col gap-1 text-xs font-medium text-muted-foreground">
                     Retry timeout
@@ -181,7 +184,7 @@ export default async function ArticleDetailPage({ params }: Props) {
         </div>
 
         <div className="h-fit lg:sticky lg:top-20">
-          <TrainingPackPanel articleId={id} />
+          <TrainingPackPanel articleId={id} canAdmin={canAdmin} />
         </div>
       </div>
     </div>

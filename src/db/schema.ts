@@ -52,6 +52,7 @@ export const vocabulary = sqliteTable(
   "Vocabulary",
   {
     id: text("id").primaryKey(),
+    userId: text("userId").references(() => users.id, { onDelete: "cascade", onUpdate: "cascade" }),
     word: text("word").notNull(),
     definition: text("definition"),
     context: text("context"),
@@ -60,7 +61,8 @@ export const vocabulary = sqliteTable(
     createdAt: timestamp("createdAt").notNull().$defaultFn(() => new Date()),
   },
   (table) => ({
-    wordKey: uniqueIndex("Vocabulary_word_key").on(table.word),
+    userWordKey: uniqueIndex("Vocabulary_userId_word_key").on(table.userId, table.word),
+    userCreatedAtIdx: index("Vocabulary_userId_createdAt_idx").on(table.userId, table.createdAt),
   })
 );
 
@@ -68,6 +70,7 @@ export const readingHistory = sqliteTable(
   "ReadingHistory",
   {
     id: text("id").primaryKey(),
+    userId: text("userId").references(() => users.id, { onDelete: "cascade", onUpdate: "cascade" }),
     articleId: text("articleId")
       .notNull()
       .references(() => articles.id, { onDelete: "cascade", onUpdate: "cascade" }),
@@ -78,6 +81,39 @@ export const readingHistory = sqliteTable(
   },
   (table) => ({
     articleIdIdx: index("ReadingHistory_articleId_idx").on(table.articleId),
+    userCreatedAtIdx: index("ReadingHistory_userId_createdAt_idx").on(table.userId, table.createdAt),
+  })
+);
+
+export const users = sqliteTable(
+  "User",
+  {
+    id: text("id").primaryKey(),
+    email: text("email").notNull(),
+    passwordHash: text("passwordHash").notNull(),
+    createdAt: timestamp("createdAt").notNull().$defaultFn(() => new Date()),
+    updatedAt: timestamp("updatedAt").notNull().$defaultFn(() => new Date()),
+  },
+  (table) => ({
+    emailKey: uniqueIndex("User_email_key").on(table.email),
+  })
+);
+
+export const authSessions = sqliteTable(
+  "AuthSession",
+  {
+    id: text("id").primaryKey(),
+    userId: text("userId")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade", onUpdate: "cascade" }),
+    tokenHash: text("tokenHash").notNull(),
+    expiresAt: timestamp("expiresAt").notNull(),
+    createdAt: timestamp("createdAt").notNull().$defaultFn(() => new Date()),
+    updatedAt: timestamp("updatedAt").notNull().$defaultFn(() => new Date()),
+  },
+  (table) => ({
+    tokenHashKey: uniqueIndex("AuthSession_tokenHash_key").on(table.tokenHash),
+    userExpiresAtIdx: index("AuthSession_userId_expiresAt_idx").on(table.userId, table.expiresAt),
   })
 );
 
@@ -286,12 +322,27 @@ export const articleRelations = relations(articles, ({ many, one }) => ({
   }),
 }));
 
+export const userRelations = relations(users, ({ many }) => ({
+  sessions: many(authSessions),
+  vocabulary: many(vocabulary),
+  readings: many(readingHistory),
+}));
+
+export const authSessionRelations = relations(authSessions, ({ one }) => ({
+  user: one(users, { fields: [authSessions.userId], references: [users.id] }),
+}));
+
 export const sentenceRelations = relations(sentences, ({ one }) => ({
   article: one(articles, { fields: [sentences.articleId], references: [articles.id] }),
 }));
 
 export const readingHistoryRelations = relations(readingHistory, ({ one }) => ({
+  user: one(users, { fields: [readingHistory.userId], references: [users.id] }),
   article: one(articles, { fields: [readingHistory.articleId], references: [articles.id] }),
+}));
+
+export const vocabularyRelations = relations(vocabulary, ({ one }) => ({
+  user: one(users, { fields: [vocabulary.userId], references: [users.id] }),
 }));
 
 export const trainingPackageRelations = relations(trainingPackages, ({ one }) => ({
@@ -317,6 +368,8 @@ export const pipelineEventRelations = relations(pipelineEvents, ({ one }) => ({
 export type Article = typeof articles.$inferSelect;
 export type NewArticle = typeof articles.$inferInsert;
 export type Sentence = typeof sentences.$inferSelect;
+export type User = typeof users.$inferSelect;
+export type AuthSession = typeof authSessions.$inferSelect;
 export type Vocabulary = typeof vocabulary.$inferSelect;
 export type ReadingHistory = typeof readingHistory.$inferSelect;
 export type ScrapeJob = typeof scrapeJobs.$inferSelect;

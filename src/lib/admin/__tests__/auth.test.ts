@@ -3,7 +3,6 @@ import assert from "node:assert/strict";
 import {
   adminCookieName,
   adminSessionMaxAgeSeconds,
-  createAdminSessionToken,
   isAdminEnabled,
   verifyAdminSecret,
   verifyAdminSessionToken,
@@ -33,32 +32,23 @@ function withEnv(env: Record<string, string | undefined>, run: () => void) {
   }
 }
 
-test("validates admin secret and session token", () => {
-  withEnv({ ADMIN_SECRET: "secret", NODE_ENV: "production" }, () => {
+test("admin secret helpers are disabled after moving to user auth", () => {
+  withEnv({ ADMIN_EMAILS: "admin@example.com", NODE_ENV: "production" }, () => {
     assert.equal(isAdminEnabled(), true);
-    assert.equal(verifyAdminSecret("secret"), true);
-    assert.equal(verifyAdminSecret("wrong"), false);
-    assert.equal(verifyAdminSessionToken(createAdminSessionToken()), true);
-    assert.equal(verifyAdminSessionToken("wrong"), false);
+    assert.equal(verifyAdminSecret(), false);
+    assert.equal(verifyAdminSessionToken(), false);
   });
 });
 
-test("disables production admin when ADMIN_SECRET is missing", () => {
-  withEnv({ ADMIN_SECRET: undefined, NODE_ENV: "production" }, () => {
-    assert.equal(isAdminEnabled(), false);
-    assert.equal(verifyAdminSecret(""), false);
-  });
-});
-
-test("uses admin cookie defaults and clamps invalid max age", () => {
+test("admin compatibility cookie helpers delegate to global auth config", () => {
   withEnv(
     {
-      ADMIN_SESSION_COOKIE_NAME: undefined,
-      ADMIN_SESSION_MAX_AGE_SECONDS: "-1",
+      AUTH_SESSION_COOKIE_NAME: undefined,
+      AUTH_SESSION_MAX_AGE_SECONDS: "-1",
     },
     () => {
-      assert.equal(adminCookieName(), "echoread_admin");
-      assert.equal(adminSessionMaxAgeSeconds(), 86400);
+      assert.equal(adminCookieName(), "echoread_session");
+      assert.equal(adminSessionMaxAgeSeconds(), 30 * 24 * 60 * 60);
     }
   );
 });

@@ -99,15 +99,15 @@ await db.insert(schema.scrapeJobs).values({ id, status: "pending", maxArticles }
 
 ### 1. Scope / Trigger
 
-- Trigger: Admin management crosses auth cookies, Next.js route handlers/server actions, Prisma job tables, article/material/audio state, filesystem cleanup, worker heartbeat, and persistent event logging.
+- Trigger: Admin management crosses auth sessions, Next.js route handlers/server actions, Drizzle job tables, article/material/audio state, filesystem cleanup, worker heartbeat, and persistent event logging.
 - Applies when changing `/admin`, `/api/admin/*`, `PipelineEvent`, `WorkerHeartbeat`, destructive article/audio operations, or manual job retry/reset/fail behavior.
 
 ### 2. Signatures
 
 - Env:
-  - `ADMIN_SECRET` enables production admin access.
-  - `ADMIN_SESSION_COOKIE_NAME` defaults to `echoread_admin`.
-  - `ADMIN_SESSION_MAX_AGE_SECONDS` defaults to `86400`.
+  - `ADMIN_EMAILS` is the comma/whitespace-separated allowlist for admin capability.
+  - `AUTH_SESSION_COOKIE_NAME` defaults to `echoread_session`.
+  - `AUTH_SESSION_MAX_AGE_SECONDS` defaults to `2592000`.
 - DB:
   - `PipelineEvent` stores `scope`, `entityType`, optional `entityId` / `articleId` / `jobId`, `status`, `message`, optional `errorMessage`, optional `metadataJson`, optional `durationMs`, and `createdAt`.
   - `WorkerHeartbeat.workerId` is unique and stores the worker's `status`, `stage`, `message`, `lastError`, `metadataJson`, and `lastSeenAt`.
@@ -121,8 +121,8 @@ await db.insert(schema.scrapeJobs).values({ id, status: "pending", maxArticles }
 
 ### 3. Contracts
 
-- Production admin is disabled when `ADMIN_SECRET` is missing. Development may use the built-in dev session secret.
-- Admin login writes an httpOnly, same-site cookie. Admin API routes must call `isAdminRequest()`, and admin server actions must call `hasAdminSession()` before mutation.
+- Admin is derived from a normal signed-in user whose normalized email is listed in `ADMIN_EMAILS`.
+- Global login writes an httpOnly, same-site cookie containing an opaque session token; `AuthSession` stores only the token hash. Admin API routes must call `authorizeAdminRequest()`, and admin server actions must verify the current user has `canAdmin` before mutation.
 - Admin routes call shared service functions in `src/lib/admin/service.ts`; do not duplicate Prisma queue state machines in route handlers.
 - Manual destructive operations must write `PipelineEvent` records. For article deletion, write the event before deleting the article and omit `articleId` if the event should survive cascade deletion.
 - `WorkerHeartbeat` is written by the standalone TS worker. The overview projection owns "online" calculation; React components should not call `Date.now()` during render.
@@ -132,8 +132,8 @@ await db.insert(schema.scrapeJobs).values({ id, status: "pending", maxArticles }
 
 ### 4. Validation & Error Matrix
 
-- Missing/invalid admin cookie -> `401` from `/api/admin/*`; admin pages redirect to `/admin/login`.
-- Missing `ADMIN_SECRET` in production -> admin login returns disabled state and no session cookie is issued.
+- Missing/invalid auth cookie -> `401` from `/api/admin/*`; admin pages redirect to `/login?next=/admin`.
+- Signed-in non-admin user -> `403` from `/api/admin/*`; admin pages/actions redirect to `/`.
 - Invalid job type -> `400` from job mutation routes.
 - Active non-stale job retry/reset/fail -> service throws; UI should disable those controls from the job projection.
 - Article content edit -> replace sentence rows, mark training package pending, reset original-audio state, and enqueue material/audio regeneration.
@@ -149,7 +149,7 @@ await db.insert(schema.scrapeJobs).values({ id, status: "pending", maxArticles }
 
 ### 6. Tests Required
 
-- Unit tests for admin auth secret/session behavior and default cookie settings.
+- Unit tests for user auth helpers, admin email allowlist, session hashing, and default cookie settings.
 - Unit tests for event normalization and admin job retry/reset state helpers.
 - Service or route tests for overview aggregation, job filters, article content edit dependency reset, article deletion cleanup, material regenerate, and original-audio retry/reset.
 - Existing `tsc --noEmit`, `eslint`, scraper/material/original-audio tests, and Python worker tests must still pass.
@@ -169,9 +169,8 @@ export async function POST(_request: NextRequest, { params }: Params) {
 
 ```typescript
 export async function POST(request: NextRequest, { params }: Params) {
-  if (!isAdminRequest(request)) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const auth = await authorizeAdminRequest(request);
+  if (!auth.ok) return adminAuthErrorResponse(auth);
   const { type, id } = await params;
   return NextResponse.json(await resetAdminJob(type, id));
 }

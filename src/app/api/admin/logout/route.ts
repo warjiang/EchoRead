@@ -1,8 +1,10 @@
-import { NextResponse } from "next/server";
-import { adminCookieName } from "@/lib/admin/auth";
+import { NextRequest, NextResponse } from "next/server";
+import { authSessionCookieName } from "@/lib/auth/config";
+import { clearAuthCookie, deleteSessionToken } from "@/lib/auth/session";
 
-export async function POST() {
+export async function POST(request: NextRequest) {
+  await deleteSessionToken(request.cookies.get(authSessionCookieName())?.value);
   const response = NextResponse.json({ ok: true });
-  response.cookies.delete(adminCookieName());
+  clearAuthCookie(response);
   return response;
 }

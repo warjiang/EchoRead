@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 import { desc } from "drizzle-orm";
+import { redirect } from "next/navigation";
 import { db, schema } from "@/lib/db";
+import { getCurrentUser } from "@/lib/auth/session";
 import { VocabularyMasteryButton } from "@/components/VocabularyActions";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
@@ -20,7 +22,13 @@ export const metadata: Metadata = {
 };
 
 export default async function VocabularyPage() {
+  const user = await getCurrentUser();
+  if (!user) {
+    redirect("/login?next=/vocabulary");
+  }
+
   const words = await db.query.vocabulary.findMany({
+    where: (table, { eq }) => eq(table.userId, user.id),
     orderBy: desc(schema.vocabulary.createdAt),
   });
 

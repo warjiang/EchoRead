@@ -1,13 +1,14 @@
 "use client";
 
+import Link from "next/link";
 import { useActionState } from "react";
-import { LockKeyhole } from "lucide-react";
+import { LogIn } from "lucide-react";
 import { loginAction } from "@/app/auth/actions";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
-export function AdminLoginForm() {
+export function LoginForm({ next }: { next: string }) {
   const [state, action, pending] = useActionState(loginAction, null);
 
   return (
@@ -15,20 +16,20 @@ export function AdminLoginForm() {
       <CardHeader>
         <div className="flex items-center gap-2">
           <span className="flex size-8 items-center justify-center rounded-md bg-muted text-muted-foreground">
-            <LockKeyhole className="size-4" aria-hidden="true" />
+            <LogIn className="size-4" aria-hidden="true" />
           </span>
-          <CardTitle>Admin Login</CardTitle>
+          <CardTitle>Sign In</CardTitle>
         </div>
       </CardHeader>
       <CardContent>
         {state?.error && (
           <Alert variant="destructive" className="mb-4">
-            <AlertTitle>Login Failed</AlertTitle>
+            <AlertTitle>Sign in failed</AlertTitle>
             <AlertDescription>{state.error}</AlertDescription>
           </Alert>
         )}
         <form action={action} className="flex flex-col gap-3">
-          <input type="hidden" name="next" value="/admin" />
+          <input type="hidden" name="next" value={next} />
           <label className="flex flex-col gap-1.5 text-sm font-medium">
             Email
             <input
@@ -53,7 +54,14 @@ export function AdminLoginForm() {
             {pending ? "Signing in..." : "Sign In"}
           </Button>
         </form>
+        <p className="mt-4 text-sm text-muted-foreground">
+          No account yet?{" "}
+          <Link href={`/register?next=${encodeURIComponent(next)}`} className="font-medium text-foreground hover:underline">
+            Create one
+          </Link>
+        </p>
       </CardContent>
     </Card>
   );
 }
+

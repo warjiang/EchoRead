@@ -1,16 +1,28 @@
 import { NextRequest, NextResponse } from "next/server";
-import { desc, eq } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 import { createId, db, schema, touch } from "@/lib/db";
+import { getCurrentUserFromRequest } from "@/lib/auth/session";
 import { lookupWord } from "@/lib/dictionary";
 
-export async function GET() {
+export async function GET(request: NextRequest) {
+  const user = await getCurrentUserFromRequest(request);
+  if (!user) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
   const words = await db.query.vocabulary.findMany({
+    where: eq(schema.vocabulary.userId, user.id),
     orderBy: desc(schema.vocabulary.createdAt),
   });
   return NextResponse.json(words);
 }
 
 export async function POST(request: NextRequest) {
+  const user = await getCurrentUserFromRequest(request);
+  if (!user) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
   try {
     const { word, context, articleId } = await request.json();
 
@@ -22,6 +34,7 @@ export async function POST(request: NextRequest) {
       .insert(schema.vocabulary)
       .values({
         id: createId("vocab"),
+        userId: user.id,
         word: normalizedWord,
         definition: defText,
         context,
@@ -29,7 +42,7 @@ export async function POST(request: NextRequest) {
         createdAt: touch(),
       })
       .onConflictDoUpdate({
-        target: schema.vocabulary.word,
+        target: [schema.vocabulary.userId, schema.vocabulary.word],
         set: { context, articleId },
       })
       .returning();
@@ -42,11 +55,19 @@ export async function POST(request: NextRequest) {
 }
 
 export async function PATCH(request: NextRequest) {
+  const user = await getCurrentUserFromRequest(request);
+  if (!user) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
   const { id, mastered } = await request.json();
   const [vocab] = await db
     .update(schema.vocabulary)
     .set({ mastered: Boolean(mastered) })
-    .where(eq(schema.vocabulary.id, id))
+    .where(and(eq(schema.vocabulary.id, id), eq(schema.vocabulary.userId, user.id)))
     .returning();
+  if (!vocab) {
+    return NextResponse.json({ error: "Not found" }, { status: 404 });
+  }
   return NextResponse.json(vocab);
 }

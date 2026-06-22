@@ -1,14 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
-import { isAdminRequest } from "@/lib/admin/auth";
+import { adminAuthErrorResponse, authorizeAdminRequest } from "@/lib/admin/auth";
 import { deleteAdminArticle, getAdminArticle, updateAdminArticle } from "@/lib/admin/service";
 
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  if (!isAdminRequest(request)) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const auth = await authorizeAdminRequest(request);
+  if (!auth.ok) return adminAuthErrorResponse(auth);
 
   const { id } = await params;
   const article = await getAdminArticle(id);
@@ -23,9 +22,8 @@ export async function PATCH(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  if (!isAdminRequest(request)) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const auth = await authorizeAdminRequest(request);
+  if (!auth.ok) return adminAuthErrorResponse(auth);
 
   const { id } = await params;
   return NextResponse.json(await updateAdminArticle(id, await request.json()));
@@ -35,9 +33,8 @@ export async function DELETE(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  if (!isAdminRequest(request)) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const auth = await authorizeAdminRequest(request);
+  if (!auth.ok) return adminAuthErrorResponse(auth);
 
   const { id } = await params;
   const article = await deleteAdminArticle(id);

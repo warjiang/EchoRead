@@ -1,70 +1,71 @@
-import { createHmac, timingSafeEqual } from "crypto";
-import { cookies } from "next/headers";
+import { redirect } from "next/navigation";
+import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
+import { authSessionCookieName, authSessionMaxAgeSeconds } from "@/lib/auth/config";
+import {
+  getCurrentUser,
+  getCurrentUserFromRequest,
+  type CurrentUser,
+} from "@/lib/auth/session";
 
-const DEFAULT_COOKIE_NAME = "echoread_admin";
-const DEFAULT_MAX_AGE_SECONDS = 24 * 60 * 60;
-
-function adminSecret(): string | null {
-  const secret = process.env.ADMIN_SECRET;
-  return secret && secret.length > 0 ? secret : null;
-}
+export type AdminRequestAuth =
+  | { ok: true; user: CurrentUser }
+  | { ok: false; status: 401 | 403 };
 
 export function adminCookieName(): string {
-  return process.env.ADMIN_SESSION_COOKIE_NAME || DEFAULT_COOKIE_NAME;
+  return authSessionCookieName();
 }
 
 export function adminSessionMaxAgeSeconds(): number {
-  const parsed = Number(process.env.ADMIN_SESSION_MAX_AGE_SECONDS);
-  return Number.isFinite(parsed) && parsed > 0
-    ? Math.trunc(parsed)
-    : DEFAULT_MAX_AGE_SECONDS;
+  return authSessionMaxAgeSeconds();
 }
 
 export function isAdminEnabled(): boolean {
-  return Boolean(adminSecret()) || process.env.NODE_ENV !== "production";
+  return true;
 }
 
-export function createAdminSessionToken(secret = adminSecret() || "development-admin"): string {
-  return createHmac("sha256", secret).update("echoread-admin-session").digest("hex");
+export function createAdminSessionToken(): string {
+  throw new Error("Admin sessions use the global auth session token.");
 }
 
-export function verifyAdminSecret(value: unknown): boolean {
-  const expected = adminSecret();
-  if (!expected) {
-    return process.env.NODE_ENV !== "production";
-  }
-  if (typeof value !== "string") {
-    return false;
-  }
-
-  const actualBuffer = Buffer.from(value);
-  const expectedBuffer = Buffer.from(expected);
-  return (
-    actualBuffer.length === expectedBuffer.length &&
-    timingSafeEqual(actualBuffer, expectedBuffer)
-  );
+export function verifyAdminSecret(): boolean {
+  return false;
 }
 
-export function verifyAdminSessionToken(value: unknown): boolean {
-  if (!isAdminEnabled() || typeof value !== "string") {
-    return false;
-  }
+export function verifyAdminSessionToken(): boolean {
+  return false;
+}
 
-  const expected = createAdminSessionToken();
-  const actualBuffer = Buffer.from(value);
-  const expectedBuffer = Buffer.from(expected);
-  return (
-    actualBuffer.length === expectedBuffer.length &&
-    timingSafeEqual(actualBuffer, expectedBuffer)
-  );
+export async function getAdminPageUser(next = "/admin"): Promise<CurrentUser> {
+  const user = await getCurrentUser();
+  if (!user) {
+    redirect(`/login?next=${encodeURIComponent(next)}`);
+  }
+  if (!user.canAdmin) {
+    redirect("/");
+  }
+  return user;
 }
 
 export async function hasAdminSession(): Promise<boolean> {
-  const store = await cookies();
-  return verifyAdminSessionToken(store.get(adminCookieName())?.value);
+  const user = await getCurrentUser();
+  return Boolean(user?.canAdmin);
 }
 
-export function isAdminRequest(request: NextRequest): boolean {
-  return verifyAdminSessionToken(request.cookies.get(adminCookieName())?.value);
+export async function authorizeAdminRequest(request: NextRequest): Promise<AdminRequestAuth> {
+  const user = await getCurrentUserFromRequest(request);
+  if (!user) return { ok: false, status: 401 };
+  if (!user.canAdmin) return { ok: false, status: 403 };
+  return { ok: true, user };
+}
+
+export async function isAdminRequest(request: NextRequest): Promise<boolean> {
+  return (await authorizeAdminRequest(request)).ok;
+}
+
+export function adminAuthErrorResponse(auth: Extract<AdminRequestAuth, { ok: false }>) {
+  return NextResponse.json(
+    { error: auth.status === 401 ? "Unauthorized" : "Forbidden" },
+    { status: auth.status }
+  );
 }

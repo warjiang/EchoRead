@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
-import { desc, eq } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
+import { redirect } from "next/navigation";
 import { db, schema } from "@/lib/db";
+import { getCurrentUser } from "@/lib/auth/session";
 import { BarChart3, Clock, BookOpen } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -24,10 +26,16 @@ export const metadata: Metadata = {
 };
 
 export default async function HistoryPage() {
+  const user = await getCurrentUser();
+  if (!user) {
+    redirect("/login?next=/history");
+  }
+
   const rows = await db
     .select({ record: schema.readingHistory, article: schema.articles })
     .from(schema.readingHistory)
     .innerJoin(schema.articles, eq(schema.readingHistory.articleId, schema.articles.id))
+    .where(and(eq(schema.readingHistory.userId, user.id)))
     .orderBy(desc(schema.readingHistory.createdAt))
     .limit(50);
   const history = rows.map(({ record, article }) => ({ ...record, article }));

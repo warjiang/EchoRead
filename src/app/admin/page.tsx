@@ -1,6 +1,5 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { redirect } from "next/navigation";
 import {
   Activity,
   CircleX,
@@ -25,7 +24,7 @@ import {
   retryOriginalAudioAction,
   runWorkerOnceAction,
 } from "@/app/admin/actions";
-import { hasAdminSession } from "@/lib/admin/auth";
+import { getAdminPageUser } from "@/lib/admin/auth";
 import { getAdminOverview, listAdminArticles, listAdminEvents, listAdminJobs } from "@/lib/admin/service";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -62,10 +61,7 @@ export default async function AdminPage({
 }: {
   searchParams: Promise<{ type?: string; status?: string; q?: string }>;
 }) {
-  if (!(await hasAdminSession())) {
-    redirect("/admin/login");
-  }
-
+  await getAdminPageUser("/admin");
   const params = await searchParams;
   const [overview, jobs, articles, events] = await Promise.all([
     getAdminOverview(),

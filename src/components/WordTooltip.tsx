@@ -23,6 +23,7 @@ export function WordTooltip({ word, context, articleId, onClose }: WordTooltipPr
     loading: boolean;
   }>({ word, definition: null, loading: true });
   const [savedState, setSavedState] = useState({ word, saved: false });
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -38,11 +39,20 @@ export function WordTooltip({ word, context, articleId, onClose }: WordTooltipPr
   }, [word]);
 
   const saveToVocabulary = async () => {
-    await fetch("/api/vocabulary", {
+    setSaveError(null);
+    const response = await fetch("/api/vocabulary", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ word, context, articleId }),
     });
+    if (response.status === 401) {
+      window.location.href = `/login?next=${encodeURIComponent(window.location.pathname)}`;
+      return;
+    }
+    if (!response.ok) {
+      setSaveError("Failed to save word.");
+      return;
+    }
     setSavedState({ word, saved: true });
   };
 
@@ -101,6 +111,10 @@ export function WordTooltip({ word, context, articleId, onClose }: WordTooltipPr
 
       {!loading && !definition && (
         <p className="text-sm text-muted-foreground">No definition found.</p>
+      )}
+
+      {saveError && (
+        <p className="text-sm text-destructive">{saveError}</p>
       )}
 
       <Separator />

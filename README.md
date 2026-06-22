@@ -130,17 +130,17 @@ The app no longer waits for WSJ collection to finish. `POST /api/scraper` create
 
 ## Pipeline Admin Console
 
-EchoRead includes a trusted self-hosted admin console for the full collection and processing workflow. Open `/admin/login`, enter `ADMIN_SECRET`, then use `/admin` to inspect worker heartbeat, queue state, article content, training packages, original-audio alignment, and pipeline events.
+EchoRead includes a trusted self-hosted admin console for the full collection and processing workflow. Create or sign in to a normal user account, include that email in `ADMIN_EMAILS`, then use `/admin` to inspect worker heartbeat, queue state, article content, training packages, original-audio alignment, and pipeline events.
 
 Admin envs:
 
 ```bash
-ADMIN_SECRET=choose-a-long-secret
-ADMIN_SESSION_COOKIE_NAME=echoread_admin
-ADMIN_SESSION_MAX_AGE_SECONDS=86400
+ADMIN_EMAILS=admin@example.com,ops@example.com
+AUTH_SESSION_COOKIE_NAME=echoread_session
+AUTH_SESSION_MAX_AGE_SECONDS=2592000
 ```
 
-In production, the admin console is disabled until `ADMIN_SECRET` is set. The login writes an httpOnly cookie; this iteration does not include multi-user roles. Admin actions enqueue or reset worker jobs and may run one bounded worker pass, but normal long-running scraping, material generation, Whisper alignment, and clipping still belong to the standalone `worker` service.
+Admin is a permission derived from the signed-in user email, not a separate account type. The login writes an httpOnly cookie containing an opaque session token; the database stores only a token hash. Admin actions enqueue or reset worker jobs and may run one bounded worker pass, but normal long-running scraping, material generation, Whisper alignment, and clipping still belong to the standalone `worker` service.
 
 Admin operations include:
 
