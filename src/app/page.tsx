@@ -32,15 +32,15 @@ async function getLatestScrapeJob() {
 }
 
 export default async function HomePage() {
-  const [articles, latestScrapeJob, user] = await Promise.all([
+  const [articles, user] = await Promise.all([
     db.query.articles.findMany({
       orderBy: desc(schema.articles.publishedAt),
       limit: 20,
     }),
-    getLatestScrapeJob(),
     getCurrentUser(),
   ]);
   const canAdmin = Boolean(user?.canAdmin);
+  const latestScrapeJob = canAdmin ? await getLatestScrapeJob() : null;
 
   return (
     <div className="container-page py-8 sm:py-10">
@@ -69,7 +69,7 @@ export default async function HomePage() {
         )}
       </div>
 
-      {latestScrapeJob && (
+      {canAdmin && latestScrapeJob && (
         <Alert
           variant={latestScrapeJob.status === "failed" ? "destructive" : "default"}
           className="mb-6"
