@@ -7,6 +7,7 @@ import {
   markWsjWorkerTaskConsumed,
   parseWsjWorkerTaskResult,
 } from "@/lib/wsj-worker/tasks";
+import { serializeWsjAudioWords } from "@/lib/original-audio/lyric";
 import type { ArticleAudio, ArticleAudioJob } from "@/db/schema";
 
 export type ArticleAudioStatus =
@@ -26,6 +27,7 @@ export interface AudioClipInput {
   startMs?: number | null;
   endMs?: number | null;
   status?: SentenceAudioStatus | string | null;
+  words?: unknown;
 }
 
 export interface IngestArticleAudioInput {
@@ -242,6 +244,7 @@ export async function retryArticleAudioJob(articleId: string, timeoutSeconds: un
         wsjAudioStartMs: null,
         wsjAudioEndMs: null,
         wsjAudioStatus: "pending",
+        wsjAudioWordsJson: null,
       })
       .where(eq(schema.sentences.articleId, articleId))
       .run();
@@ -567,6 +570,10 @@ async function markUnavailable(input: IngestArticleAudioInput): Promise<ArticleA
     tx.update(schema.sentences)
       .set({
         wsjAudioStatus: "unavailable",
+        wsjAudioUrl: null,
+        wsjAudioStartMs: null,
+        wsjAudioEndMs: null,
+        wsjAudioWordsJson: null,
       })
       .where(eq(schema.sentences.articleId, input.articleId))
       .run();
@@ -662,6 +669,7 @@ async function markSucceeded(input: IngestArticleAudioInput): Promise<ArticleAud
         wsjAudioUrl: null,
         wsjAudioStartMs: null,
         wsjAudioEndMs: null,
+        wsjAudioWordsJson: null,
       })
       .where(eq(schema.sentences.articleId, input.articleId))
       .run();
@@ -673,6 +681,7 @@ async function markSucceeded(input: IngestArticleAudioInput): Promise<ArticleAud
           wsjAudioUrl: clip.audioUrl || null,
           wsjAudioStartMs: typeof clip.startMs === "number" ? Math.trunc(clip.startMs) : null,
           wsjAudioEndMs: typeof clip.endMs === "number" ? Math.trunc(clip.endMs) : null,
+          wsjAudioWordsJson: serializeWsjAudioWords(clip.words),
         })
         .where(eq(schema.sentences.id, clip.sentenceId))
         .run();

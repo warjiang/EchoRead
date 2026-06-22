@@ -441,11 +441,25 @@ export async function resetAdminJob(type: AdminJobType, id: string) {
   }
   const existing = await getArticleAudioJobOrThrow(id);
   assertCanReset(existing.status, existing.lockedAt);
-  const [job] = await db
-    .update(schema.articleAudioJobs)
-    .set({ status: "pending", runAfter: now, lockedAt: null, workerJobId: null, lastError: null, updatedAt: now })
-    .where(eq(schema.articleAudioJobs.id, id))
-    .returning();
+  const job = db.transaction((tx) => {
+    const updated = tx
+      .update(schema.articleAudioJobs)
+      .set({ status: "pending", runAfter: now, lockedAt: null, workerJobId: null, lastError: null, updatedAt: now })
+      .where(eq(schema.articleAudioJobs.id, id))
+      .returning()
+      .get();
+    tx.update(schema.sentences)
+      .set({
+        wsjAudioUrl: null,
+        wsjAudioStartMs: null,
+        wsjAudioEndMs: null,
+        wsjAudioStatus: "pending",
+        wsjAudioWordsJson: null,
+      })
+      .where(eq(schema.sentences.articleId, updated.articleId))
+      .run();
+    return updated;
+  });
   await recordPipelineEvent({
     scope: "manual",
     entityType: "articleAudioJob",
@@ -530,7 +544,7 @@ export async function markAdminJobFailed(type: AdminJobType, id: string, message
       .where(eq(schema.articleAudio.articleId, updated.articleId))
       .run();
     tx.update(schema.sentences)
-      .set({ wsjAudioStatus: "failed" })
+      .set({ wsjAudioStatus: "failed", wsjAudioWordsJson: null })
       .where(eq(schema.sentences.articleId, updated.articleId))
       .run();
     return updated;
@@ -844,6 +858,7 @@ export async function resetAdminOriginalAudio(articleId: string, timeoutSeconds?
         wsjAudioStartMs: null,
         wsjAudioEndMs: null,
         wsjAudioStatus: "pending",
+        wsjAudioWordsJson: null,
       })
       .where(eq(schema.sentences.articleId, articleId))
       .run();

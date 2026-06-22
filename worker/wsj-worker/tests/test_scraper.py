@@ -147,6 +147,9 @@ class ScraperTests(unittest.TestCase):
         self.assertLessEqual(timings[0].start, 0.1)
         self.assertGreater(timings[1].end, 2.4)
         self.assertGreaterEqual(timings[0].confidence, 0.9)
+        self.assertEqual([word.text for word in timings[0].words], ["stocks", "rose", "today"])
+        self.assertEqual(timings[0].words[0].startMs, 100)
+        self.assertEqual(timings[0].words[0].endMs, 400)
 
     def test_align_sentences_to_words_skips_audio_intro(self):
         sentences = [
@@ -179,6 +182,7 @@ class ScraperTests(unittest.TestCase):
 
         self.assertEqual([timing.sentenceId for timing in timings], ["s1", "s2"])
         self.assertGreaterEqual(timings[0].start, 3.7)
+        self.assertGreaterEqual(timings[0].words[0].startMs, 4000)
         self.assertGreaterEqual(timings[0].confidence, 0.9)
 
     def test_align_sentences_to_words_tolerates_small_text_differences(self):
@@ -192,6 +196,10 @@ class ScraperTests(unittest.TestCase):
         self.assertEqual(len(timings), 1)
         self.assertEqual(timings[0].sentenceId, "s1")
         self.assertGreaterEqual(timings[0].confidence, 0.62)
+        words_by_text = {word.text: word for word in timings[0].words}
+        self.assertIsNone(words_by_text["said"].startMs)
+        self.assertIsNone(words_by_text["sharply"].startMs)
+        self.assertIsNotNone(words_by_text["company"].startMs)
 
     def test_align_sentences_to_words_rejects_low_confidence_windows(self):
         sentences = [

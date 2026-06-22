@@ -5,6 +5,7 @@ import { useParams } from "next/navigation";
 import Link from "next/link";
 import { ArrowLeft, Radio } from "lucide-react";
 import { SentencePlayer } from "@/components/SentencePlayer";
+import { LyricSentencePlayer } from "@/components/LyricSentencePlayer";
 import { AudioRecorder } from "@/components/AudioRecorder";
 import { Badge } from "@/components/ui/badge";
 import { buttonVariants } from "@/components/ui/button";
@@ -15,6 +16,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
+import { hasLyricTimeline, type WsjAudioWordTiming } from "@/lib/original-audio/lyric";
 import { cn } from "@/lib/utils";
 
 interface Sentence {
@@ -22,7 +24,10 @@ interface Sentence {
   index: number;
   text: string;
   wsjAudioUrl: string | null;
+  wsjAudioStartMs: number | null;
+  wsjAudioEndMs: number | null;
   wsjAudioStatus: string;
+  wsjAudioWords: WsjAudioWordTiming[];
 }
 
 interface Article {
@@ -31,6 +36,7 @@ interface Article {
   sentences: Sentence[];
   originalAudio: {
     status: string;
+    sourceAudioUrl: string | null;
     clippedCount: number;
     sentenceCount: number;
     lastError: string | null;
@@ -110,6 +116,10 @@ export default function ShadowReadingPage() {
     );
   }
 
+  const useLyricTimeline = Boolean(
+    article.originalAudio.sourceAudioUrl && hasLyricTimeline(article.sentences)
+  );
+
   return (
     <div className="container-page max-w-4xl py-8 sm:py-10">
       <div className="mb-8 border-b pb-6">
@@ -135,10 +145,18 @@ export default function ShadowReadingPage() {
       </div>
 
       <div className="mb-6">
-        <SentencePlayer
-          sentences={article.sentences}
-          onSentenceChange={setCurrentSentenceIndex}
-        />
+        {useLyricTimeline && article.originalAudio.sourceAudioUrl ? (
+          <LyricSentencePlayer
+            sourceAudioUrl={article.originalAudio.sourceAudioUrl}
+            sentences={article.sentences}
+            onSentenceChange={setCurrentSentenceIndex}
+          />
+        ) : (
+          <SentencePlayer
+            sentences={article.sentences}
+            onSentenceChange={setCurrentSentenceIndex}
+          />
+        )}
       </div>
 
       <Card>

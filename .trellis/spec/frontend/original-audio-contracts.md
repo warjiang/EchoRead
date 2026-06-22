@@ -12,7 +12,8 @@
 - DB:
   - `ArticleAudio.articleId` is unique and owns article-level original-audio state.
   - `ArticleAudioJob.articleId` is unique and owns retry/timeout state.
-  - `Sentence.wsjAudioUrl`, `wsjAudioStartMs`, `wsjAudioEndMs`, and `wsjAudioStatus` own WSJ-derived sentence playback.
+  - `Sentence.wsjAudioUrl`, `wsjAudioStartMs`, `wsjAudioEndMs`, `wsjAudioStatus`, and `wsjAudioWordsJson` own WSJ-derived sentence playback.
+  - `Sentence.wsjAudioWordsJson` stores nullable JSON for canonical article-token timings: `{ text, startMs, endMs, confidence? }[]`.
 - Worker task:
   - TS worker creates `WsjWorkerTask.kind = "audio"` with payload `{ jobId, articleId, articleUrl, title, sentences, timeoutSeconds, coverageThreshold }`.
   - Python worker polls SQLite, processes the task, and writes the former callback payload into `WsjWorkerTask.resultJson`.
@@ -25,6 +26,8 @@
 - `ArticleAudio.status` values: `pending`, `processing`, `ready`, `unavailable`, `failed`.
 - `Sentence.wsjAudioStatus` values: `pending`, `ready`, `unavailable`, `failed`.
 - Worker result statuses: `running`, `succeeded`, `unavailable`, `failed`.
+- Worker ready clips may include `words`; word `startMs` / `endMs` are absolute offsets in the full WSJ source audio, not sentence-clip-relative offsets.
+- `GET /api/articles/:id` must serialize sentence word timings as `wsjAudioWords` and must not expose raw `wsjAudioWordsJson`.
 - Primary worker orchestration uses the standalone TS worker plus Python DB-polled `WsjWorkerTask`; no original-audio worker/callback HTTP routes are used.
 - Required env keys for Docker flow:
   - `DATABASE_URL`
@@ -47,12 +50,15 @@
 - Worker `failed` result or Python task failure -> retry until `maxAttempts`, then `ArticleAudio.status = failed`.
 - Coverage below `ORIGINAL_AUDIO_MIN_COVERAGE` -> treat as retryable failure until attempts are exhausted.
 - Sentence alignment confidence below `ORIGINAL_AUDIO_ALIGNMENT_MIN_SCORE` -> omit that sentence clip; do not cut a guessed clip.
-- Manual retry -> reset job attempts to `0`, apply custom timeout, reset sentence WSJ clip fields to pending.
+- Low-confidence sentence word timing -> omit the whole sentence clip/words payload; do not keep guessed word timings for unavailable sentences.
+- Manual retry/reset -> reset job attempts to `0`, apply custom timeout, reset sentence WSJ clip fields and `wsjAudioWordsJson` to pending/null.
 
 ### 5. Good/Base/Bad Cases
 
 - Good: Article has source narration, coverage is at least threshold, `SentencePlayer` plays `wsjAudioUrl` and never calls `/api/tts`.
+- Good: Article has source narration and word timings, the shadow page plays `ArticleAudio.sourceAudioUrl` and derives active sentence/word from absolute `wsjAudioWords` offsets.
 - Base: Article has no accessible narration, article page remains readable and shadow-reading entry is disabled.
+- Base: Existing ready article has sentence clips but no word timings, shadow reading falls back to sentence-clip playback.
 - Bad: Python worker task fails or times out; job retries, then failed state exposes manual retry with custom timeout.
 - Bad: Audio starts with title/intro/author text; aligner skips those words before matching the first stored article sentence.
 - Bad: Narration wording differs too much from stored article text; aligner marks those sentences unavailable instead of producing shifted clips.
@@ -62,6 +68,7 @@
 - Unit tests for timeout normalization and coverage threshold behavior.
 - Unit tests for API serialization of article-audio state.
 - Worker tests for DB task claim/complete/fail behavior, audio helper behavior, intro-skipping alignment, small narration text differences, and low-confidence rejection.
+- Unit tests for lyric timing parsing, active sentence/word lookup, and API serialization that hides raw `wsjAudioWordsJson`.
 - Existing scraper ingest tests must still pass after audio enqueue is added.
 - Lint/type-check must verify UI uses typed article-audio state and does not locally redefine callback contracts.
 
@@ -80,6 +87,21 @@ play(sentence.audioUrl);
 if (sentence.wsjAudioStatus === "ready" && sentence.wsjAudioUrl) {
   play(sentence.wsjAudioUrl);
 }
+```
+
+#### Wrong
+
+```typescript
+// Do not leak raw timing JSON to client components.
+return NextResponse.json({ sentences });
+```
+
+#### Correct
+
+```typescript
+return NextResponse.json({
+  sentences: sentences.map(serializeSentenceForArticleApi),
+});
 ```
 
 #### Wrong

@@ -1,0 +1,1 @@
+ALTER TABLE `Sentence` ADD `wsjAudioWordsJson` text;

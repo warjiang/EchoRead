@@ -42,6 +42,7 @@ export const sentences = sqliteTable(
     wsjAudioStartMs: integer("wsjAudioStartMs"),
     wsjAudioEndMs: integer("wsjAudioEndMs"),
     wsjAudioStatus: text("wsjAudioStatus").notNull().default("pending"),
+    wsjAudioWordsJson: text("wsjAudioWordsJson"),
   },
   (table) => ({
     articleIdIdx: index("Sentence_articleId_idx").on(table.articleId),

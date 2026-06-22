@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { asc, eq } from "drizzle-orm";
 import { db, schema } from "@/lib/db";
 import { serializeArticleAudio } from "@/lib/original-audio/queue";
+import { serializeSentenceForArticleApi } from "@/lib/original-audio/lyric";
 
 export async function GET(
   request: NextRequest,
@@ -27,7 +28,7 @@ export async function GET(
 
   return NextResponse.json({
     ...article,
-    sentences,
+    sentences: sentences.map(serializeSentenceForArticleApi),
     originalAudio: serializeArticleAudio(originalAudio, originalAudioJob),
   });
 }

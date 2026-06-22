@@ -15,6 +15,7 @@ from app.models import (
     AudioJobCallback,
     AudioJobRequest,
     AudioSentenceInput,
+    AudioWordTimingCallback,
     AudioSource,
     SentenceTiming,
     WordTiming,
@@ -327,6 +328,37 @@ def find_sentence_window(
     return best
 
 
+def align_sentence_word_timings(
+    sentence_tokens: list[str],
+    timed_tokens: list[tuple[str, WordTiming]],
+    start: int,
+    end: int,
+    confidence: float,
+) -> list[AudioWordTimingCallback]:
+    candidate_tokens = [token for token, _word in timed_tokens[start:end]]
+    matcher = difflib.SequenceMatcher(a=sentence_tokens, b=candidate_tokens, autojunk=False)
+    word_timings = [
+        AudioWordTimingCallback(text=token, startMs=None, endMs=None, confidence=confidence)
+        for token in sentence_tokens
+    ]
+
+    for block in matcher.get_matching_blocks():
+        for offset in range(block.size):
+            sentence_index = block.a + offset
+            candidate_index = block.b + offset
+            if sentence_index >= len(word_timings) or start + candidate_index >= end:
+                continue
+            source_word = timed_tokens[start + candidate_index][1]
+            word_timings[sentence_index] = AudioWordTimingCallback(
+                text=sentence_tokens[sentence_index],
+                startMs=int(source_word.start * 1000),
+                endMs=int(source_word.end * 1000),
+                confidence=confidence,
+            )
+
+    return word_timings
+
+
 def align_sentences_to_words(sentences: list[AudioSentenceInput], words: list[WordTiming]) -> list[SentenceTiming]:
     timings: list[SentenceTiming] = []
     timed_tokens = word_timing_tokens(words)
@@ -362,6 +394,7 @@ def align_sentences_to_words(sentences: list[AudioSentenceInput], words: list[Wo
             start=max(0, segment_words[0].start - 0.12),
             end=segment_words[-1].end + 0.2,
             confidence=score,
+            words=align_sentence_word_timings(sentence_tokens, timed_tokens, start, end, score),
         )
         timings.append(timing)
         cursor = end
@@ -429,6 +462,7 @@ async def clip_sentence_audio(source_path: Path, article_id: str, timings: list[
                     startMs=int(timing.start * 1000),
                     endMs=int(timing.end * 1000),
                     status="ready",
+                    words=timing.words,
                 )
             )
         except subprocess.SubprocessError as error:

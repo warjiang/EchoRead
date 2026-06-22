@@ -32,12 +32,20 @@ class AudioJobRequest(BaseModel):
     coverageThreshold: float = Field(default=0.9, ge=0, le=1)
 
 
+class AudioWordTimingCallback(BaseModel):
+    text: str
+    startMs: int | None = None
+    endMs: int | None = None
+    confidence: float | None = None
+
+
 class AudioClipCallback(BaseModel):
     sentenceId: str
     audioUrl: str | None = None
     startMs: int | None = None
     endMs: int | None = None
     status: Literal["ready", "unavailable", "failed"] = "unavailable"
+    words: list[AudioWordTimingCallback] = Field(default_factory=list)
 
 
 class AudioJobCallback(BaseModel):
@@ -69,3 +77,4 @@ class SentenceTiming(BaseModel):
     start: float
     end: float
     confidence: float = 0
+    words: list[AudioWordTimingCallback] = Field(default_factory=list)
