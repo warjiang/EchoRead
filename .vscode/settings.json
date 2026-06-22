@@ -14,5 +14,10 @@
         "seccomp",
         "TINYPROXY",
         "unrs"
-    ]
+    ],
+    "files.exclude": {
+        "**/__pycache__": true,
+        "**/.venv": true,
+        "**/venv": true
+    }
 }
