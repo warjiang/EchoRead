@@ -38,3 +38,36 @@ Implemented WSJ original-audio processing for shadow reading, including worker a
 ### Next Steps
 
 - None - task complete
+
+
+## Session 2: Word-level lyric shadow reading
+
+**Date**: 2026-06-22
+**Task**: Word-level lyric shadow reading
+**Branch**: `fix/0621`
+
+### Summary
+
+Implemented word-level WSJ lyric timing persistence, worker callbacks, article API serialization, full-source shadow playback UI, tests, migration, and original-audio spec updates.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `3ddd615` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
